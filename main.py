@@ -80,7 +80,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.refresh_drive();
         self.update_channel_lists_ui()
         # 重新加载后将channel_choose复位
-        self.channel_choose = 0
+        # self.channel_choose = 0
         self.update_channel_cfg_ui()
 
     def refresh_drive(self):
@@ -94,9 +94,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                 'serial_number': channel_list.serial_number,
                 'is_on_bus': channel_list.is_on_bus,
                 'is_support_canfd': bool(channel_list.channel_capabilities.value & \
-                                      xldefine.XL_ChannelCapabilities.XL_CHANNEL_FLAG_CANFD_BOSCH_SUPPORT.value),
-                'can_op_mode':channel_list.bus_params.can.can_op_mode
-                                         })
+                                         xldefine.XL_ChannelCapabilities.XL_CHANNEL_FLAG_CANFD_BOSCH_SUPPORT.value),
+                'can_op_mode': channel_list.bus_params.can.can_op_mode
+            })
 
 
     def update_channel_lists_ui(self):
@@ -107,19 +107,33 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                                           str(channel['transceiver_name']) +
                                           ' ' +
                                           str(channel['serial_number']))
+        if self.channel_choose+1 > len(self.__vectorAvailableConfigs):
+            self.channel_choose = 0
+            self.comboBox_channel.setCurrentIndex(self.channel_choose)
+        else:
+            self.comboBox_channel.setCurrentIndex(self.channel_choose)
+
 
     def update_channel_cfg_ui(self):
+        self.checkBox_bustype.setDisabled(False)
         self.channel_choose = self.comboBox_channel.currentIndex()
+        self.checkBox_bustype.setDisabled(False)
         if self.vectorConfigs[self.channel_choose]['is_on_bus']:
-            if self.vectorConfigs[self.channel_choose]['can_op_mode'] & xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CAN20:
+            if self.vectorConfigs[self.channel_choose][
+                'can_op_mode'] & xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CAN20:
+
+
                 self.checkBox_bustype.setChecked(False)
                 self.checkBox_bustype.setDisabled(True)
-            elif self.vectorConfigs[self.channel_choose]['can_op_mode'] & xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CANFD:
+            elif self.vectorConfigs[self.channel_choose][
+                'can_op_mode'] & xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CANFD:
+
                 self.checkBox_bustype.setChecked(True)
                 self.checkBox_bustype.setDisabled(True)
         else:
             if self.vectorConfigs[self.channel_choose]['is_support_canfd']:
-                self.checkBox_bustype.setChecked(True)
+                pass
+                # self.checkBox_bustype.setChecked(True)
             else:
                 self.checkBox_bustype.setChecked(False)
                 self.checkBox_bustype.setDisabled(True)
@@ -137,6 +151,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
             self.pushButton_start.setText('Start')
 
+            self.checkBox_bustype.setDisabled(False)
             self.comboBox_channel.setDisabled(False)
             self.pushButton_send.setDisabled(True)
         else:
@@ -144,7 +159,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             self.create_uds_client(self.canbus)
 
     def connect_vector_can_interfaces(self):
-
+        self.refresh_ui()
         VectorBus.set_application_config(
             app_name=self.appName,
             app_channel=self.channel_choose,
@@ -153,9 +168,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             hw_channel=self.__vectorAvailableConfigs[self.channel_choose].hw_channel
         )
         if self.checkBox_bustype.isChecked():
-            busParams_dict=self.vectorChannelCanParams.canfd._asdict()
+            busParams_dict = self.vectorChannelCanParams.canfd._asdict()
         else:
-            busParams_dict=self.vectorChannelCanParams.can._asdict()
+            busParams_dict = self.vectorChannelCanParams.can._asdict()
 
         if self.__vectorAvailableConfigs[self.channel_choose].is_on_bus:
             self.canbus = VectorBus(
@@ -169,12 +184,11 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                 fd=self.checkBox_bustype.isChecked(),
                 **busParams_dict)
 
-    def create_uds_client(self,bus):
+    def create_uds_client(self, bus):
         # tp_addr = isotp.Address(isotp.AddressingMode.Normal_29bits, txid=0x18DA05F1, rxid=0x18DAF105,
         #                         functional_id=0x18DB33F1)
         tp_addr = isotp.Address(isotp.AddressingMode.Normal_11bits, txid=0x123, rxid=0x124,
                                 functional_id=0x125)
-
 
         isotpparams = {
             'blocking_send': False,
@@ -209,86 +223,168 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.notifier = can.Notifier(bus, [])  # Add a debug listener that print all messages
         # stack = isotp.CanStack(bus=bus, address=tp_addr, params=isotp_params)              # isotp v1.x has no notifier support
         self.stack = isotp.NotifierBasedCanStack(bus=bus, notifier=self.notifier, address=tp_addr,
-                                            params=isotpparams)  # Network/Transport layer (IsoTP protocol). Register a new listenenr
+                                                 params=isotpparams)  # Network/Transport layer (IsoTP protocol). Register a new listenenr
         self.conn = PythonIsoTpConnection(self.stack)  # interface between Application and Transport layer
         # with Client(conn, config=uds_config) as client:  # Application layer (UDS protocol)
         #     client.change_session(1)
         # conn.close()
         # stack.stop()
 
-
-
-
-
-        self.canudsthread=canUDSClientThread(conn=self.conn,send_queue=self.send_queue)
+        self.canudsthread = canUDSClientThread(conn=self.conn, send_queue=self.send_queue)
         self.canudsthread.start()
 
-        self.is_run=True
+        self.is_run = True
 
         self.pushButton_start.setText('Stop')
 
+        self.checkBox_bustype.setDisabled(True)
         self.comboBox_channel.setDisabled(True)
         self.pushButton_send.setDisabled(False)
 
+    def str_to_bytes(self, input_str):
+        # 移除输入字符串中的空格
+        input_str = input_str.replace(' ', '')
+
+        # 检查输入字符串是否是有效的十六进制字符串
+        if not input_str:
+            raise ValueError("输入字符串为空")
+        if len(input_str) % 2 != 0:
+            raise ValueError("字符串长度必须是偶数")
+        if not all(c in '0123456789abcdefABCDEF' for c in input_str):
+            raise ValueError("字符串包含非法字符")
+
+        # 尝试将字符串转换为字节对象
+        try:
+            bytes_list = bytes.fromhex(input_str)
+            return bytes_list
+        except ValueError:
+            raise ValueError("无效的十六进制字符串")
+
+    def make_uds_request(self, uds_bytes):
+        if uds_bytes[0] == 0x10:
+            print('DiagnosticSessionControl')
+            req = Request(services.DiagnosticSessionControl, subfunction=uds_bytes[1])
+            return req
+        elif uds_bytes[0] == 0x11:
+            req = Request(services.ECUReset, subfunction=uds_bytes[1])
+            return req
+        elif uds_bytes[0] == 0x27:
+            print('SecurityAccess')
+            req = Request(services.SecurityAccess, subfunction=uds_bytes[1], data=uds_bytes[2:])
+            return req
+        elif uds_bytes[0] == 0x28:
+            print('CommunicationControl')
+            req = Request(services.CommunicationControl, subfunction=uds_bytes[1], data=uds_bytes[2])
+            return req
+        elif uds_bytes[0] == 0x83:
+            print('AccessTimingParameter')
+        elif uds_bytes[0] == 0x84:
+            print('SecuredDataTransmission')
+        elif uds_bytes[0] == 0x3e:
+            print('TesterPresent')
+            req = Request(services.TesterPresent, subfunction=uds_bytes[1] & 0x7f,
+                          suppress_positive_response=bool(uds_bytes[1] & 0x80))
+            return req
+        elif uds_bytes[0] == 0x85:
+            print('ControlDTCSetting')
+        elif uds_bytes[0] == 0x86:
+            print('ResponseOnEvent')
+        elif uds_bytes[0] == 0x87:
+            print('LinkControl')
+        elif uds_bytes[0] == 0x22:
+            print('ReadDataByIdentifier')
+        elif uds_bytes[0] == 0x2e:
+            print('WriteDataByIdentifier')
+        elif uds_bytes[0] == 0x23:
+            print('ReadMemoryByAddress')
+        elif uds_bytes[0] == 0x2f:
+            print('InputOutputControlByIdentifier')
+        elif uds_bytes[0] == 0x31:
+            print('RoutineControl')
+        elif uds_bytes[0] == 0x24:
+            print('ReadScalingDataByIdentifier')
+        elif uds_bytes[0] == 0x2a:
+            print('ReadDataByPeriodicIdentifier')
+        elif uds_bytes[0] == 0x3d:
+            print('WriteMemoryByAddress')
+        elif uds_bytes[0] == 0x2c:
+            print('DynamicallyDefineDataIdentifier')
+        elif uds_bytes[0] == 0x14:
+            print('ClearDiagnosticInformation')
+        elif uds_bytes[0] == 0x19:
+            print('ReadDTCInformation')
+        elif uds_bytes[0] == 0x34:
+            print('RequestDownload')
+        elif uds_bytes[0] == 0x35:
+            print('RequestUpload')
+        elif uds_bytes[0] == 0x36:
+            print('TransferData')
+        elif uds_bytes[0] == 0x37:
+            print('RequestTransferExit')
+        elif uds_bytes[0] == 0x38:
+            print('RequestFileTransfer')
+        elif uds_bytes[0] == 0x29:
+            print('Authentication')
+        else:
+            raise ValueError('无效服务')
 
     def send_uds(self):
-        self.send_queue.put(1)
+        # 队列过多时不响应发送请求
+        if self.send_queue.qsize() <= 2:
+            data_str = self.lineEdit_send.text()
+            try:
+                uds_bytes = self.str_to_bytes(data_str)
+                req = self.make_uds_request(uds_bytes)
+                if req != None:
+                    self.send_queue.put(req)
+                else:
+                    print('req == None')
+
+
+
+
+            except ValueError as e:
+                print(e)
+
 
 class canUDSClientThread(QThread):
-    def __init__(self, conn,send_queue):
+    def __init__(self, conn, send_queue):
         super().__init__()
-        self.conn=conn
-        self.send_queue=send_queue
-        self.stop_flag=0;
+        self.daemon = True  # 设置为守护进程
+        self.conn = conn
+        self.send_queue = send_queue
+        self.stop_flag = 0;
 
     def run(self):
         self.conn.open()
         # client=Client(conn=self.conn, config=self.config,request_timeout=2)
         while True:
             try:
-                if self.stop_flag==1:
+                if self.stop_flag == 1:
                     break
-                data = self.send_queue.get(block=True, timeout=1)  # 设置超时时间，例如 1 秒
+                req = self.send_queue.get(block=True, timeout=1)  # 设置超时时间，例如 1 秒
 
-                req = Request(services.ECUReset, subfunction=1)
+                # req = Request(services.ECUReset, subfunction=1)
                 self.conn.send(req.get_payload())
                 payload = self.conn.wait_frame(timeout=1)
                 print(payload)
-                if payload==None:
-                    print('None')
+                if payload == None:
+                    print('No Response')
                 else:
                     try:
                         response = Response.from_payload(payload)
-                        print(response.code)
                         if response.service == services.ECUReset and response.code == Response.Code.PositiveResponse and response.data == b'\x01':
                             print('Success!')
                         else:
                             print('Reset failed')
                     except Exception as e:
                         print(e)
-
-
-
             except queue.Empty:
                 # 处理队列为空的情况，例如打印日志或进行其他操作
-                print("队列为空，等待数据...")
+                pass
+
     def stop_thread(self):
-        self.stop_flag=1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        self.stop_flag = 1
 
 
 if __name__ == "__main__":
