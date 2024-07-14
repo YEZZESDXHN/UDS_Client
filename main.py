@@ -267,7 +267,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         uds_config = udsoncan.configs.default_client_config.copy()
 
         self.notifier = can.Notifier(bus, [])  # Add a debug listener that print all messages
-        # stack = isotp.CanStack(bus=bus, address=tp_addr, params=isotp_params)              # isotp v1.x has no notifier support
+        # self.stack = isotp.CanStack(bus=bus, address=tp_addr, params=isotpparams)              # isotp v1.x has no notifier support
         self.stack = isotp.NotifierBasedCanStack(bus=bus, notifier=self.notifier, address=tp_addr,
                                                  params=isotpparams,
                                                  error_handler=self.handle_error)  # Network/Transport layer (IsoTP protocol). Register a new listenenr
@@ -281,6 +281,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.canudsthread = canUDSClientThread(conn=self.conn, send_queue=self.send_queue)
 
         self.canudsthread.send_data.connect(self.print_tx)
+        self.canudsthread.rec_data.connect(self.print_rx)
+
+
         self.canudsthread.sig_send_state.connect(self.canudsthread.set_send_state)
 
         self.canudsthread.start()
@@ -296,6 +299,12 @@ class MainWindows(QMainWindow, Ui_MainWindow):
     def print_tx(self,data):
         text='Tx:'+data.hex(" ").upper()+'\r'
         self.textEdit_trace.insertPlainText(text)
+        self.textEdit_trace.moveCursor(QTextCursor.End)
+    def print_rx(self,data):
+        # text = 'Rx:' + data.hex(" ").upper() + '\r'
+        # self.textEdit_trace.insertPlainText(text)
+        # self.textEdit_trace.moveCursor(QTextCursor.End)
+        self.textEdit_trace.insertPlainText(data)
         self.textEdit_trace.moveCursor(QTextCursor.End)
 
     def handle_error(self, error):
@@ -357,6 +366,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         if uds_bytes[0] == 0x10:
             print('DiagnosticSessionControl')
             req = Request(services.DiagnosticSessionControl, subfunction=uds_bytes[1])
+
             return req
         elif uds_bytes[0] == 0x11:
             req = Request(services.ECUReset, subfunction=uds_bytes[1])
@@ -446,6 +456,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
 class canUDSClientThread(QThread):
     send_data=pyqtSignal(object)
+    rec_data = pyqtSignal(object)
     sig_send_state=pyqtSignal(object)
     def __init__(self, conn, send_queue):
         super().__init__()
@@ -468,23 +479,28 @@ class canUDSClientThread(QThread):
                 self.send_data.emit(req.get_payload())
                 self.conn.send(req.get_payload())
 
-                payload = self.conn.wait_frame(timeout=1.2) #timeout
+                payload = self.conn.wait_frame(timeout=1.2) # 流控帧超时1s,这里等待时间需要大于1s
                 if self.send_state == 'Normal':
-                    pass
+                    if payload is None:
+                        self.rec_data.emit('ECU No Response\r')
+                    else:
+
+                        response = Response.from_payload(payload)
+
+                        # self.rec_data.emit(response)
+
+                        if response.service == req.service:
+                            if response.code == Response.Code.PositiveResponse:
+                                self.rec_data.emit('PositiveResponse\r')
+                            else:
+                                self.rec_data.emit(f'NegativeResponse：{response.code}\r')
+                        else:
+                            self.rec_data.emit(f'response service error\r')
+
                 else:
                     print(self.send_state)
 
-                if payload is None:
-                    print('No Response')
-                else:
-                    try:
-                        response = Response.from_payload(payload)
-                        if response.service == services.ECUReset and response.code == Response.Code.PositiveResponse and response.data == b'\x01':
-                            print('Success!')
-                        else:
-                            print('Reset failed')
-                    except Exception as e:
-                        print(e)
+
             except queue.Empty:
                 # 处理队列为空的情况，例如打印日志或进行其他操作
                 pass
