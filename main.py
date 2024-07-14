@@ -21,8 +21,6 @@ from udsoncan.client import Client
 import udsoncan.configs
 
 
-
-
 class MainWindows(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
@@ -78,7 +76,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.set_canParams()
 
     def refresh_ui(self):
-        self.refresh_drive();
+        self.refresh_drive()
         self.update_channel_lists_ui()
         # 重新加载后将channel_choose复位
         # self.channel_choose = 0
@@ -283,7 +281,6 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.canudsthread.send_data.connect(self.print_tx)
         self.canudsthread.rec_data.connect(self.print_rx)
 
-
         self.canudsthread.sig_send_state.connect(self.canudsthread.set_send_state)
 
         self.canudsthread.start()
@@ -296,11 +293,12 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.comboBox_channel.setDisabled(True)
         self.pushButton_send.setDisabled(False)
 
-    def print_tx(self,data):
-        text='Tx:'+data.hex(" ").upper()+'\r'
+    def print_tx(self, data):
+        text = 'Tx:' + data.hex(" ").upper() + '\r'
         self.textEdit_trace.insertPlainText(text)
         self.textEdit_trace.moveCursor(QTextCursor.End)
-    def print_rx(self,data):
+
+    def print_rx(self, data):
         # text = 'Rx:' + data.hex(" ").upper() + '\r'
         # self.textEdit_trace.insertPlainText(text)
         # self.textEdit_trace.moveCursor(QTextCursor.End)
@@ -338,10 +336,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         # elif isinstance(error, OverflowError):
         #     print(error)
         self.canudsthread.sig_send_state.emit(error)
-        text='Tx error:'+str(error)+'\r'
+        text = 'Tx error:' + str(error) + '\r'
         self.textEdit_trace.insertPlainText(text)
         self.textEdit_trace.moveCursor(QTextCursor.End)
-
 
     def str_to_bytes(self, input_str):
         # 移除输入字符串中的空格
@@ -446,25 +443,22 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                     self.send_queue.put(req)
                 else:
                     print('req == None')
-
-
-
-
             except ValueError as e:
                 print(e)
 
 
 class canUDSClientThread(QThread):
-    send_data=pyqtSignal(object)
+    send_data = pyqtSignal(object)
     rec_data = pyqtSignal(object)
-    sig_send_state=pyqtSignal(object)
+    sig_send_state = pyqtSignal(object)
+
     def __init__(self, conn, send_queue):
         super().__init__()
         self.daemon = True  # 设置为守护进程
         self.conn = conn
         self.send_queue = send_queue
         self.stop_flag = 0;
-        self.send_state='Normal'
+        self.send_state = 'Normal'
 
     def run(self):
         self.conn.open()
@@ -479,7 +473,7 @@ class canUDSClientThread(QThread):
                 self.send_data.emit(req.get_payload())
                 self.conn.send(req.get_payload())
 
-                payload = self.conn.wait_frame(timeout=1.2) # 流控帧超时1s,这里等待时间需要大于1s
+                payload = self.conn.wait_frame(timeout=1.2)  # 流控帧超时1s,这里等待时间需要大于1s
                 if self.send_state == 'Normal':
                     if payload is None:
                         self.rec_data.emit('ECU No Response\r')
@@ -508,10 +502,8 @@ class canUDSClientThread(QThread):
     def stop_thread(self):
         self.stop_flag = 1
 
-    def set_send_state(self,error):
-        self.send_state=error
-
-
+    def set_send_state(self, error):
+        self.send_state = error
 
 
 if __name__ == "__main__":
