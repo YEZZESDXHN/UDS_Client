@@ -1,11 +1,14 @@
 import queue
 import sys
+import time
 
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal
+from PyQt5.QtGui import QTextCursor
 from PyQt5.QtWidgets import QApplication, QMainWindow
 import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
     VectorCanFdParams
+from isotp.errors import *
 from udsoncan import NegativeResponseException, TimeoutException, UnexpectedResponseException, InvalidResponseException, \
     services, Request, Response
 # from udsoncan.services import *
@@ -18,9 +21,6 @@ from udsoncan.client import Client
 import udsoncan.configs
 
 
-class CANbusThread(QThread):
-    def __init__(self):
-        super().__init__()
 
 
 class MainWindows(QMainWindow, Ui_MainWindow):
@@ -70,6 +70,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
     def init(self):
         self.send_queue = queue.Queue()
         self.rec_queue = queue.Queue()
+
         self.pushButton_start.clicked.connect(self.run_bus)
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
         self.pushButton_send.clicked.connect(self.send_uds)
@@ -98,7 +99,6 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                 'can_op_mode': channel_list.bus_params.can.can_op_mode
             })
 
-
     def update_channel_lists_ui(self):
         self.comboBox_channel.clear()
         for channel in self.vectorConfigs:
@@ -107,12 +107,11 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                                           str(channel['transceiver_name']) +
                                           ' ' +
                                           str(channel['serial_number']))
-        if self.channel_choose+1 > len(self.__vectorAvailableConfigs):
+        if self.channel_choose + 1 > len(self.__vectorAvailableConfigs):
             self.channel_choose = 0
             self.comboBox_channel.setCurrentIndex(self.channel_choose)
         else:
             self.comboBox_channel.setCurrentIndex(self.channel_choose)
-
 
     def update_channel_cfg_ui(self):
         self.checkBox_bustype.setDisabled(False)
@@ -122,7 +121,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             if self.vectorConfigs[self.channel_choose][
                 'can_op_mode'] & xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CAN20:
 
-
+                self.checkBox_sendcanfd.setChecked(False)
                 self.checkBox_bustype.setChecked(False)
                 self.checkBox_bustype.setDisabled(True)
             elif self.vectorConfigs[self.channel_choose][
@@ -130,11 +129,13 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
                 self.checkBox_bustype.setChecked(True)
                 self.checkBox_bustype.setDisabled(True)
+
         else:
             if self.vectorConfigs[self.channel_choose]['is_support_canfd']:
                 pass
                 # self.checkBox_bustype.setChecked(True)
             else:
+                self.checkBox_sendcanfd.setChecked(False)
                 self.checkBox_bustype.setChecked(False)
                 self.checkBox_bustype.setDisabled(True)
 
@@ -154,9 +155,24 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             self.checkBox_bustype.setDisabled(False)
             self.comboBox_channel.setDisabled(False)
             self.pushButton_send.setDisabled(True)
+            self.checkBox_sendcanfd.setDisabled(False)
+
+            self.lineEdit_responseid.setDisabled(False)
+            self.lineEdit_requestid.setDisabled(False)
+            self.lineEdit_functionid.setDisabled(False)
         else:
             self.connect_vector_can_interfaces()
             self.create_uds_client(self.canbus)
+
+            if self.checkBox_bustype.isChecked():
+                pass
+            else:
+                self.checkBox_sendcanfd.setChecked(False)
+            self.checkBox_sendcanfd.setDisabled(True)
+
+            self.lineEdit_responseid.setDisabled(True)
+            self.lineEdit_requestid.setDisabled(True)
+            self.lineEdit_functionid.setDisabled(True)
 
     def connect_vector_can_interfaces(self):
         self.refresh_ui()
@@ -184,11 +200,41 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                 fd=self.checkBox_bustype.isChecked(),
                 **busParams_dict)
 
+    def get_diag_id_by_str(self, id_str):
+        try:
+            # 尝试将字符串解释为十六进制数
+            id = int(id_str, 10)
+            return id
+        except ValueError:
+            # 如果不是有效的十六进制数，则尝试将其解释为十进制数
+            try:
+                id = int(id_str, 16)
+                return id
+            except ValueError:
+                print(' 不是有效的十六进制或十进制字符串')
+
     def create_uds_client(self, bus):
         # tp_addr = isotp.Address(isotp.AddressingMode.Normal_29bits, txid=0x18DA05F1, rxid=0x18DAF105,
         #                         functional_id=0x18DB33F1)
-        tp_addr = isotp.Address(isotp.AddressingMode.Normal_11bits, txid=0x123, rxid=0x124,
-                                functional_id=0x125)
+
+        tx_id_str = self.lineEdit_requestid.text()
+        txid = self.get_diag_id_by_str(tx_id_str)
+
+        rx_id_str = self.lineEdit_responseid.text()
+        rxid = self.get_diag_id_by_str(rx_id_str)
+
+        functional_id_str = self.lineEdit_functionid.text()
+        functionalid = self.get_diag_id_by_str(functional_id_str)
+
+        if txid is None:
+            txid = 0x123
+        if rxid is None:
+            rxid = 0x234
+        if functionalid is None:
+            functionalid = 0x345
+
+        tp_addr = isotp.Address(isotp.AddressingMode.Normal_11bits, txid=txid, rxid=rxid,
+                                functional_id=functionalid)
 
         isotpparams = {
             'blocking_send': False,
@@ -208,7 +254,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             'override_receiver_stmin': 0,
             # When sending, respect the stmin requirement of the receiver. If set to True, go as fast as possible.
             'max_frame_size': 4095,  # Limit the size of receive frame.
-            'can_fd': self.checkBox_bustype.isChecked(),  # Does not set the can_fd flag on the output CAN messages
+            'can_fd': self.checkBox_sendcanfd.isChecked(),  # Does not set the can_fd flag on the output CAN messages
             'bitrate_switch': False,  # Does not set the bitrate_switch flag on the output CAN messages
             'rate_limit_enable': False,  # Disable the rate limiter
             'rate_limit_max_bitrate': 1000000,
@@ -223,7 +269,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.notifier = can.Notifier(bus, [])  # Add a debug listener that print all messages
         # stack = isotp.CanStack(bus=bus, address=tp_addr, params=isotp_params)              # isotp v1.x has no notifier support
         self.stack = isotp.NotifierBasedCanStack(bus=bus, notifier=self.notifier, address=tp_addr,
-                                                 params=isotpparams)  # Network/Transport layer (IsoTP protocol). Register a new listenenr
+                                                 params=isotpparams,
+                                                 error_handler=self.handle_error)  # Network/Transport layer (IsoTP protocol). Register a new listenenr
+
         self.conn = PythonIsoTpConnection(self.stack)  # interface between Application and Transport layer
         # with Client(conn, config=uds_config) as client:  # Application layer (UDS protocol)
         #     client.change_session(1)
@@ -231,6 +279,10 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         # stack.stop()
 
         self.canudsthread = canUDSClientThread(conn=self.conn, send_queue=self.send_queue)
+
+        self.canudsthread.send_data.connect(self.print_tx)
+        self.canudsthread.sig_send_state.connect(self.canudsthread.set_send_state)
+
         self.canudsthread.start()
 
         self.is_run = True
@@ -240,6 +292,47 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.checkBox_bustype.setDisabled(True)
         self.comboBox_channel.setDisabled(True)
         self.pushButton_send.setDisabled(False)
+
+    def print_tx(self,data):
+        text='Tx:'+data.hex(" ").upper()+'\r'
+        self.textEdit_trace.insertPlainText(text)
+        self.textEdit_trace.moveCursor(QTextCursor.End)
+
+    def handle_error(self, error):
+
+        # if isinstance(error, FlowControlTimeoutError):
+        #     print(error)
+        # elif isinstance(error, BlockingSendFailure):
+        #     print(error)
+        # elif isinstance(error, ConsecutiveFrameTimeoutError):
+        #     print(error)
+        # elif isinstance(error, InvalidCanDataError):
+        #     print(error)
+        # elif isinstance(error, UnexpectedFlowControlError):
+        #     print(error)
+        # elif isinstance(error, UnexpectedConsecutiveFrameError):
+        #     print(error)
+        # elif isinstance(error, ReceptionInterruptedWithSingleFrameError):
+        #     print(error)
+        # elif isinstance(error, ReceptionInterruptedWithFirstFrameError):
+        #     print(error)
+        # elif isinstance(error, MaximumWaitFrameReachedError):
+        #     print(error)
+        # elif isinstance(error, FrameTooLongError):
+        #     print(error)
+        # elif isinstance(error, ChangingInvalidRXDLError):
+        #     print(error)
+        # elif isinstance(error, MissingEscapeSequenceError):
+        #     print(error)
+        # elif isinstance(error, InvalidCanFdFirstFrameRXDL):
+        #     print(error)
+        # elif isinstance(error, OverflowError):
+        #     print(error)
+        self.canudsthread.sig_send_state.emit(error)
+        text='Tx error:'+str(error)+'\r'
+        self.textEdit_trace.insertPlainText(text)
+        self.textEdit_trace.moveCursor(QTextCursor.End)
+
 
     def str_to_bytes(self, input_str):
         # 移除输入字符串中的空格
@@ -293,8 +386,12 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             print('LinkControl')
         elif uds_bytes[0] == 0x22:
             print('ReadDataByIdentifier')
+            req = Request(services.ReadDataByIdentifier, data=uds_bytes[1:])
+            return req
         elif uds_bytes[0] == 0x2e:
             print('WriteDataByIdentifier')
+            req = Request(services.WriteDataByIdentifier, data=uds_bytes[1:])
+            return req
         elif uds_bytes[0] == 0x23:
             print('ReadMemoryByAddress')
         elif uds_bytes[0] == 0x2f:
@@ -335,7 +432,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             try:
                 uds_bytes = self.str_to_bytes(data_str)
                 req = self.make_uds_request(uds_bytes)
-                if req != None:
+                if req is not None:
                     self.send_queue.put(req)
                 else:
                     print('req == None')
@@ -348,12 +445,15 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
 
 class canUDSClientThread(QThread):
+    send_data=pyqtSignal(object)
+    sig_send_state=pyqtSignal(object)
     def __init__(self, conn, send_queue):
         super().__init__()
         self.daemon = True  # 设置为守护进程
         self.conn = conn
         self.send_queue = send_queue
         self.stop_flag = 0;
+        self.send_state='Normal'
 
     def run(self):
         self.conn.open()
@@ -365,10 +465,16 @@ class canUDSClientThread(QThread):
                 req = self.send_queue.get(block=True, timeout=1)  # 设置超时时间，例如 1 秒
 
                 # req = Request(services.ECUReset, subfunction=1)
+                self.send_data.emit(req.get_payload())
                 self.conn.send(req.get_payload())
-                payload = self.conn.wait_frame(timeout=1)
-                print(payload)
-                if payload == None:
+
+                payload = self.conn.wait_frame(timeout=1.2) #timeout
+                if self.send_state == 'Normal':
+                    pass
+                else:
+                    print(self.send_state)
+
+                if payload is None:
                     print('No Response')
                 else:
                     try:
@@ -385,6 +491,11 @@ class canUDSClientThread(QThread):
 
     def stop_thread(self):
         self.stop_flag = 1
+
+    def set_send_state(self,error):
+        self.send_state=error
+
+
 
 
 if __name__ == "__main__":
