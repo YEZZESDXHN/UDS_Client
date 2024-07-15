@@ -46,15 +46,15 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             can_op_mode=xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CAN20
         )
         canfd_params = VectorCanFdParams(
-            bitrate=5000,
-            data_bitrate=20000,
-            sjw_abr=1,
-            tseg1_abr=1,
-            tseg2_abr=1,
+            bitrate=500000,
+            data_bitrate=2000000,
+            sjw_abr=16,
+            tseg1_abr=63,
+            tseg2_abr=16,
             sam_abr=1,
-            sjw_dbr=1,
-            tseg1_dbr=1,
-            tseg2_dbr=1,
+            sjw_dbr=4,
+            tseg1_dbr=15,
+            tseg2_dbr=4,
             output_mode=xldefine.XL_OutputMode.XL_OUTPUT_MODE_NORMAL,
             can_op_mode=xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CANFD
         )
@@ -101,7 +101,6 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                     'can_op_mode': channel_list.bus_params.can.can_op_mode
                 })
                 # print(channel_list.channel_index)
-        # print(self.vectorConfigs)
 
     def update_channel_lists_ui(self):
         self.comboBox_channel.clear()
@@ -203,6 +202,8 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                 app_name=self.appName,
                 fd=self.checkBox_bustype.isChecked(),
                 **busParams_dict)
+            # self.__vectorAvailableConfigs = get_channel_configs()
+            # print(self.__vectorAvailableConfigs[2].bus_params.canfd)
 
     def get_diag_id_by_str(self, id_str):
         try:
@@ -239,6 +240,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
         tp_addr = isotp.Address(isotp.AddressingMode.Normal_11bits, txid=txid, rxid=rxid,
                                 functional_id=functionalid)
+        # tp_addr = isotp.Address(isotp.AddressingMode.Normal_29bits, txid=txid, rxid=rxid,
+        #                         functional_id=functionalid)
+
 
         isotpparams = {
             'blocking_send': False,
