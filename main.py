@@ -10,7 +10,7 @@ from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, Vect
     VectorCanFdParams
 from isotp.errors import *
 from udsoncan import NegativeResponseException, TimeoutException, UnexpectedResponseException, InvalidResponseException, \
-    services, Request, Response
+    services, Request, Response, DidCodec, ConfigError
 # from udsoncan.services import *
 
 from UDS_Client_UI import Ui_MainWindow
@@ -68,6 +68,11 @@ class MainWindows(QMainWindow, Ui_MainWindow):
     def init(self):
         self.send_queue = queue.Queue()
         self.rec_queue = queue.Queue()
+
+
+
+
+
 
         self.pushButton_start.clicked.connect(self.run_bus)
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
@@ -286,7 +291,57 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         # conn.close()
         # stack.stop()
 
-        self.canudsthread = canUDSClientThread(conn=self.conn, send_queue=self.send_queue)
+
+
+        config = dict(udsoncan.configs.default_client_config)
+        config['p2_timeout']=1.5
+        # config['data_identifiers'] = {
+        #     'default': '>H',  # Default codec is a struct.pack/unpack string. 16bits little endian
+        #     0xF190: udsoncan.AsciiCodec(15),  # Codec that read ASCII string. We must tell the length of the string
+        #     0xf110:MyCodec()
+        # }
+
+
+        self.uds_client=Client(self.conn, request_timeout=2, config=config)
+        self.uds_client.open()
+
+        # try:
+        #     response = self.uds_client.test_data_identifier([0xF195])
+        #
+        #     print(response)
+        # except TimeoutException as e:
+        #     print(e)
+        # req = Request(services.WriteDataByIdentifier, data=bytes([0x00,0x11,0x22,0x33,0x44,0x55,0x66]))
+        # try:
+        #     response = self.uds_client.send_request(req)
+        #
+        #     if response.positive:
+        #         # 获取响应数据
+        #         data = response.data
+        #         print(f"Data: {data.hex()}")
+        #     else:
+        #         # 处理否定响应
+        #         print(f"Negative response: {response.code_name}")
+        # except TimeoutException as e:
+        #     print(e)
+        # except:
+        #     print('error')
+
+
+
+        # with Client(conn, request_timeout=2, config=config) as client:
+        #     response = client.read_data_by_identifier([0xF190])
+        #     print(response.service_data.values[0xF190])  # This is a dict of DID:Value
+        #
+        #     # Or, if a single DID is expected, a shortcut to read the value of the first DID
+        #     vin = client.read_data_by_identifier_first(0xF190)
+
+
+
+
+
+
+        self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue)
 
         self.canudsthread.send_data.connect(self.print_tx)
         self.canudsthread.rec_data.connect(self.print_rx)
@@ -345,6 +400,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         #     print(error)
         # elif isinstance(error, OverflowError):
         #     print(error)
+
         self.canudsthread.sig_send_state.emit(error)
         text = 'Tx error:' + str(error) + '\r'
         self.textEdit_trace.insertPlainText(text)
@@ -457,6 +513,66 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                 print(e)
 
 
+# class canUDSClientThread(QThread):
+#     send_data = pyqtSignal(object)
+#     rec_data = pyqtSignal(object)
+#     sig_send_state = pyqtSignal(object)
+#
+#     def __init__(self, conn, send_queue):
+#         super().__init__()
+#         self.daemon = True  # 设置为守护进程
+#         self.conn = conn
+#         self.send_queue = send_queue
+#         self.stop_flag = 0;
+#         self.send_state = 'Normal'
+#
+#     def run(self):
+#         self.conn.open()
+#         # client=Client(conn=self.conn, config=self.config,request_timeout=2)
+#         while True:
+#             try:
+#                 if self.stop_flag == 1:
+#                     break
+#                 req = self.send_queue.get(block=True, timeout=1)  # 设置超时时间，例如 1 秒
+#
+#                 # req = Request(services.ECUReset, subfunction=1)
+#                 self.send_data.emit(req.get_payload())
+#                 self.conn.send(req.get_payload())
+#
+#                 payload = self.conn.wait_frame(timeout=1.2)  # 流控帧超时1s,这里等待时间需要大于1s
+#                 if self.send_state == 'Normal':
+#                     if payload is None:
+#                         self.rec_data.emit('ECU No Response\r')
+#                     else:
+#
+#                         response = Response.from_payload(payload)
+#
+#                         # self.rec_data.emit(response)
+#
+#                         if response.service == req.service:
+#                             if response.code == Response.Code.PositiveResponse:
+#                                 self.rec_data.emit('PositiveResponse\r')
+#                             else:
+#                                 self.rec_data.emit(f'NegativeResponse：{response.code}\r')
+#                         else:
+#                             self.rec_data.emit(f'response service error\r')
+#
+#                 else:
+#                     print(self.send_state)
+#
+#
+#             except queue.Empty:
+#                 # 处理队列为空的情况，例如打印日志或进行其他操作
+#                 pass
+#
+#     def stop_thread(self):
+#         self.stop_flag = 1
+#
+#     def set_send_state(self, error):
+#         self.send_state = error
+
+
+
 class canUDSClientThread(QThread):
     send_data = pyqtSignal(object)
     rec_data = pyqtSignal(object)
@@ -477,32 +593,38 @@ class canUDSClientThread(QThread):
             try:
                 if self.stop_flag == 1:
                     break
+
                 req = self.send_queue.get(block=True, timeout=1)  # 设置超时时间，例如 1 秒
-
-                # req = Request(services.ECUReset, subfunction=1)
                 self.send_data.emit(req.get_payload())
-                self.conn.send(req.get_payload())
+                try:
+                    response = self.conn.send_request(req)
+                    data_raw = response.original_payload
+                    self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
 
-                payload = self.conn.wait_frame(timeout=1.2)  # 流控帧超时1s,这里等待时间需要大于1s
-                if self.send_state == 'Normal':
-                    if payload is None:
-                        self.rec_data.emit('ECU No Response\r')
+                except NegativeResponseException as e:
+                    print(e)
+                    self.rec_data.emit(f"Negative response: {e.response.code_name}\r")
+                except InvalidResponseException as e:
+                    print(e)
+                    data_raw = response.original_payload
+                    self.rec_data.emit(f"InvalidResponse: {e.data_raw.hex(' ')}\r")
+
+                except UnexpectedResponseException as e:
+                    print(e)
+                    data_raw = response.original_payload
+                    self.rec_data.emit(f"Negative response: {e.data_raw.hex(' ')}\r")
+                except ConfigError as e:
+                    self.rec_data.emit(str(e) + '\r')
+                except TimeoutException as e:
+                    if self.send_state != 'Normal':
+                        self.send_state = 'Normal'
+                        pass
                     else:
+                        self.rec_data.emit(str(e) + '\r')
+                except Exception as e:
+                    self.rec_data.emit(str(e) + '\r')
 
-                        response = Response.from_payload(payload)
 
-                        # self.rec_data.emit(response)
-
-                        if response.service == req.service:
-                            if response.code == Response.Code.PositiveResponse:
-                                self.rec_data.emit('PositiveResponse\r')
-                            else:
-                                self.rec_data.emit(f'NegativeResponse：{response.code}\r')
-                        else:
-                            self.rec_data.emit(f'response service error\r')
-
-                else:
-                    print(self.send_state)
 
 
             except queue.Empty:
@@ -514,6 +636,13 @@ class canUDSClientThread(QThread):
 
     def set_send_state(self, error):
         self.send_state = error
+
+class MyCodec(DidCodec):
+    def encode(self, val):
+        return bytes(val)  # 直接将列表转换为字节序列
+
+    def decode(self, payload):
+        return list(payload)  # 将字节序列转换回列表
 
 
 if __name__ == "__main__":
