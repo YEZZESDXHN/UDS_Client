@@ -1,7 +1,8 @@
 import queue
 import sys
+import ctypes
 import time
-
+import platform
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from PyQt5.QtWidgets import QApplication, QMainWindow
@@ -26,6 +27,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.setupUi(self)
         self.vectorConfigs = []
+        self.dll_lib=None
 
         self.channel_choose = 0
         self.appName = 'UDS Client'
@@ -69,6 +71,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.send_queue = queue.Queue()
         self.rec_queue = queue.Queue()
 
+        # self.dll_lib=ctypes.WinDLL("./SeednKey.dll")
 
 
 
@@ -79,6 +82,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.pushButton_send.clicked.connect(self.send_uds)
 
         self.set_canParams()
+
+        # self.dll_lib=ctypes.WinDLL("./GenerateKeyExImpl.dll")
+
 
     def refresh_ui(self):
         self.refresh_drive()
@@ -436,8 +442,14 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             return req
         elif uds_bytes[0] == 0x27:
             print('SecurityAccess')
-            req = Request(services.SecurityAccess, subfunction=uds_bytes[1], data=uds_bytes[2:])
-            return req
+            if uds_bytes[1]%2 ==1:
+                req = Request(services.SecurityAccess, subfunction=uds_bytes[1], data=uds_bytes[2:])
+                return req
+            else:
+                self.textEdit_trace.insertPlainText('Send Security Level Erroe:'+uds_bytes.hex(' ') + '\r')
+                self.textEdit_trace.moveCursor(QTextCursor.End)
+                # self.rec_data.emit('Send Security Level Erroe' + '\r')
+
         elif uds_bytes[0] == 0x28:
             print('CommunicationControl')
             req = Request(services.CommunicationControl, subfunction=uds_bytes[1], data=uds_bytes[2])
@@ -601,18 +613,29 @@ class canUDSClientThread(QThread):
                     data_raw = response.original_payload
                     self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
 
+                    if data_raw[0]==0x67 and data_raw[1]==req.get_payload()[1]:
+                        # 当前python是64位，解锁dll是32位，无法直接调用，考虑做一个64位dll调用32位dll
+                        # 此处回复key是固定值，待实现调用dll后再完成发送key的功能
+                        req1 = Request(services.SecurityAccess, subfunction=data_raw[1]+1, data=bytes([1,2,3,4]))
+                        self.send_data.emit(req1.get_payload())
+                        response = self.conn.send_request(req1)
+                        data_raw = response.original_payload
+                        self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
+                        # print(f'level {data_raw[1]}')
+
+
                 except NegativeResponseException as e:
                     print(e)
                     self.rec_data.emit(f"Negative response: {e.response.code_name}\r")
                 except InvalidResponseException as e:
                     print(e)
-                    data_raw = response.original_payload
-                    self.rec_data.emit(f"InvalidResponse: {e.data_raw.hex(' ')}\r")
+                    data_raw = e.response.original_payload
+                    self.rec_data.emit(f"Invalid Response: {data_raw.hex(' ')}\r")
 
                 except UnexpectedResponseException as e:
                     print(e)
-                    data_raw = response.original_payload
-                    self.rec_data.emit(f"Negative response: {e.data_raw.hex(' ')}\r")
+                    data_raw = e.response.original_payload
+                    self.rec_data.emit(f"Unexpected Response: {data_raw.hex(' ')}\r")
                 except ConfigError as e:
                     self.rec_data.emit(str(e) + '\r')
                 except TimeoutException as e:
