@@ -3,8 +3,8 @@ import sys
 import ctypes
 import time
 import platform
-from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal
-from PyQt5.QtGui import QTextCursor
+from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp
+from PyQt5.QtGui import QTextCursor, QRegExpValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow
 import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
@@ -73,7 +73,11 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
         # self.dll_lib=ctypes.WinDLL("./SeednKey.dll")
 
-
+        # self.lineEdit_send.setInputMethodHints(Qt.InputMethodHint)
+        reg = QRegExp("[a-fA-F0-9]+$")
+        regVal = QRegExpValidator()
+        regVal.setRegExp(reg)
+        self.lineEdit_send.setValidator(regVal)
 
 
 
