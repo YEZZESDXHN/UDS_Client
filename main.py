@@ -597,6 +597,8 @@ class canUDSClientThread(QThread):
         self.send_queue = send_queue
         self.stop_flag = 0;
         self.send_state = 'Normal'
+        self.dll_lib = ctypes.WinDLL("./SeednKey.dll")
+        self.generated_key =None
 
     def run(self):
         self.conn.open()
@@ -616,7 +618,106 @@ class canUDSClientThread(QThread):
                     if data_raw[0]==0x67 and data_raw[1]==req.get_payload()[1]:
                         # 当前python是64位，解锁dll是32位，无法直接调用，考虑做一个64位dll调用32位dll
                         # 此处回复key是固定值，待实现调用dll后再完成发送key的功能
-                        req1 = Request(services.SecurityAccess, subfunction=data_raw[1]+1, data=bytes([1,2,3,4]))
+
+                        length = len(data_raw)
+                        seed_bytes = data_raw[2:length]
+                        print(length)
+                        seed_array = (ctypes.c_ubyte * len(seed_bytes))(*seed_bytes)
+                        seed_length = ctypes.c_uint(len(seed_bytes))
+                        security_level = ctypes.c_uint(data_raw[1])
+                        variant_string = None
+                        Options_string = None
+
+                        # 准备输出数据
+                        max_key_size = length - 2
+                        key_array = (ctypes.c_ubyte * max_key_size)()
+                        actual_key_size = ctypes.c_uint()
+
+
+                        # 定义函数的返回类型和参数类型
+                        try:
+                            self.dll_lib.GenerateKeyEx.restype = ctypes.c_int
+                            self.dll_lib.GenerateKeyEx.argtypes = [
+                                ctypes.POINTER(ctypes.c_ubyte),  # ipSeedArray
+                                ctypes.c_uint,  # iSeedArraySize
+                                ctypes.c_uint,  # iSecurityLevel
+                                ctypes.POINTER(ctypes.c_char),  # ipVariant
+                                ctypes.POINTER(ctypes.c_ubyte),  # iopKeyArray
+                                ctypes.c_uint,  # iMaxKeyArraySize
+                                ctypes.POINTER(ctypes.c_uint)  # oActualKeyArraySize
+                            ]
+
+
+                            # 调用DLL函数
+                            result = self.dll_lib.GenerateKeyEx(
+                                seed_array,  # ipSeedArray
+                                seed_length,  # iSeedArraySize
+                                security_level,  # iSecurityLevel
+                                ctypes.POINTER(ctypes.c_char)(),  # ipVariant (None or empty)
+                                key_array,  # iopKeyArray
+                                ctypes.c_uint(max_key_size),  # iMaxKeyArraySize
+                                ctypes.byref(actual_key_size)  # oActualKeyArraySize
+                            )
+
+                            # 检查返回值
+                            if result == 0:
+                                self.generated_key = bytearray(key_array)[:actual_key_size.value]
+                            else:
+                                self.generated_key=None
+
+                        except AttributeError as e:
+                            self.generated_key=None
+
+                        except Exception as e:
+                            self.generated_key = None
+
+
+                        if self.generated_key==None:
+                            try:
+                                self.dll_lib.GenerateKeyExOpt.restype = ctypes.c_int
+                                self.dll_lib.GenerateKeyExOpt.argtypes = [
+                                    ctypes.POINTER(ctypes.c_ubyte),  # ipSeedArray
+                                    ctypes.c_uint,  # iSeedArraySize
+                                    ctypes.c_uint,  # iSecurityLevel
+                                    ctypes.POINTER(ctypes.c_char),  # ipVariant
+                                    ctypes.POINTER(ctypes.c_char),  # ipOptions
+                                    ctypes.POINTER(ctypes.c_ubyte),  # iopKeyArray
+                                    ctypes.c_uint,  # iMaxKeyArraySize
+                                    ctypes.POINTER(ctypes.c_uint)  # oActualKeyArraySize
+                                ]
+
+
+                                # 调用DLL函数
+                                result = self.dll_lib.GenerateKeyExOpt(
+                                    seed_array,  # ipSeedArray
+                                    seed_length,  # iSeedArraySize
+                                    security_level,  # iSecurityLevel
+                                    ctypes.POINTER(ctypes.c_char)(),  # ipVariant (None or empty)
+                                    ctypes.POINTER(ctypes.c_char)(),  # ipVariant (None or empty)
+                                    key_array,  # iopKeyArray
+                                    ctypes.c_uint(max_key_size),  # iMaxKeyArraySize
+                                    ctypes.byref(actual_key_size)  # oActualKeyArraySize
+                                )
+
+                                # 检查返回值
+                                if result == 0:
+                                    self.generated_key = bytearray(key_array)[:actual_key_size.value]
+                                else:
+                                    self.generated_key = None
+
+                            except AttributeError as e:
+                                self.generated_key = None
+
+                            except Exception as e:
+                                self.generated_key = None
+
+
+
+
+                        if self.generated_key == None:
+                            self.generated_key = bytes([0x00] * (length - 2))
+
+                        req1 = Request(services.SecurityAccess, subfunction=data_raw[1]+1, data=bytes(self.generated_key))
                         self.send_data.emit(req1.get_payload())
                         response = self.conn.send_request(req1)
                         data_raw = response.original_payload
