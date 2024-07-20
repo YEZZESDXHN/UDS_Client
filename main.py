@@ -1,18 +1,14 @@
 import queue
 import sys
 import ctypes
-import time
-import platform
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow
 import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
     VectorCanFdParams
-from isotp.errors import *
 from udsoncan import NegativeResponseException, TimeoutException, UnexpectedResponseException, InvalidResponseException, \
-    services, Request, Response, DidCodec, ConfigError
-# from udsoncan.services import *
+    services, Request,  DidCodec, ConfigError
 
 from UDS_Client_UI import Ui_MainWindow
 import isotp
@@ -70,6 +66,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
     def init(self):
         self.send_queue = queue.Queue()
         self.rec_queue = queue.Queue()
+
 
         # self.dll_lib=ctypes.WinDLL("./SeednKey.dll")
 
@@ -777,6 +774,7 @@ if __name__ == "__main__":
     # 高dpi
     QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     app = QApplication(sys.argv)
+    app.setStyle("WindowsVista")
     w = MainWindows()
     w.show()
     sys.exit(app.exec_())
