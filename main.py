@@ -19,16 +19,17 @@ import udsoncan.configs
 import configparser
 
 class MainWindows(QMainWindow, Ui_MainWindow):
+    sig_dll_path = pyqtSignal(object)
     def __init__(self):
         super().__init__()
         self.setupUi(self)
         self.vectorConfigs = []
-        self.dll_lib=None
-
+        self.dll_path=None
         self.channel_choose = 0
         self.appName = 'UDS Client'
         self.vectorChannelCanParams = None
         self.is_run = False
+
 
         self.refresh_ui()
         self.init()
@@ -127,6 +128,8 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.lineEdit_responseid.setText(self.ecus[ecu_name]['uds_on_can_response_id'])
         self.lineEdit_functionid.setText(self.ecus[ecu_name]['uds_on_can_function_id'])
         self.set_did_list()
+        self.dll_path=self.ecus[ecu_name]['dll']
+        self.sig_dll_path.emit(self.ecus[ecu_name]['dll'])
 
     def set_did_list(self):
         model = QStringListModel()  # 在循环外创建 QStringListModel
@@ -442,10 +445,11 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
 
 
-        self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue)
+        self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue,dll_path=self.dll_path)
 
         self.canudsthread.send_data.connect(self.print_tx)
         self.canudsthread.rec_data.connect(self.print_rx)
+        self.sig_dll_path.connect(self.canudsthread.load_dll)
 
         self.canudsthread.sig_send_state.connect(self.canudsthread.set_send_state)
 
@@ -693,17 +697,21 @@ class canUDSClientThread(QThread):
     rec_data = pyqtSignal(object)
     sig_send_state = pyqtSignal(object)
 
-    def __init__(self, conn, send_queue):
+
+    def __init__(self, conn, send_queue,dll_path):
         super().__init__()
         self.daemon = True  # 设置为守护进程
         self.conn = conn
         self.send_queue = send_queue
         self.stop_flag = 0;
         self.send_state = 'Normal'
-        self.dll_lib = ctypes.WinDLL("./SeednKey.dll")
+        self.dll_path=dll_path
+        self.dll_lib = None
         self.generated_key =None
 
+
     def run(self):
+        self.load_dll(self.dll_path)
         self.conn.open()
         # client=Client(conn=self.conn, config=self.config,request_timeout=2)
         while True:
@@ -857,6 +865,12 @@ class canUDSClientThread(QThread):
             except queue.Empty:
                 # 处理队列为空的情况，例如打印日志或进行其他操作
                 pass
+
+    def load_dll(self,dll_path):
+        try:
+            self.dll_lib=ctypes.WinDLL(dll_path)
+        except:
+            self.dll_lib=None
 
     def stop_thread(self):
         self.stop_flag = 1
