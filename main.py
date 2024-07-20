@@ -1,7 +1,7 @@
 import queue
 import sys
 import ctypes
-from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp
+from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow
 import can
@@ -16,7 +16,7 @@ import isotp
 from udsoncan.connections import PythonIsoTpConnection
 from udsoncan.client import Client
 import udsoncan.configs
-
+import configparser
 
 class MainWindows(QMainWindow, Ui_MainWindow):
     def __init__(self):
@@ -63,7 +63,101 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             canfd=canfd_params
         )
 
+    def read_ecu_config(self):
+        config = configparser.ConfigParser()
+        config.read('./ECUConfig/DIDList.ini')
+        ecu_data = {}
+        for ecu_name in config.sections():
+            if ":" not in ecu_name:  # 只处理 ECU 名称，不处理子项
+                AddressingMode=None
+                try:
+                    AddressingMode=int(config[ecu_name]["AddressingMode"])
+                except:
+                    AddressingMode=0
+                try:
+                    uds_on_can_request_id=config[ecu_name]["uds_on_can_request_id"]
+                except:
+                    uds_on_can_request_id=0x701
+                try:
+                    uds_on_can_response_id=config[ecu_name]["uds_on_can_response_id"]
+                except:
+                    uds_on_can_response_id=0x702
+                try:
+                    uds_on_can_function_id=config[ecu_name]["uds_on_can_function_id"]
+                except:
+                    uds_on_can_function_id=0x7df
+
+
+
+                ecu_data[ecu_name] = {}
+                # 读取 ECU 基本信息
+                ecu_data[ecu_name]["AddressingMode"] = AddressingMode
+                ecu_data[ecu_name]["uds_on_can_request_id"] = uds_on_can_request_id
+                ecu_data[ecu_name]["uds_on_can_response_id"] = uds_on_can_response_id
+                ecu_data[ecu_name]["uds_on_can_function_id"] = uds_on_can_function_id
+
+                # 读取 dll 信息
+                try:
+                    dll=config[f"{ecu_name}:dll"]["dll"]
+                except:
+                    dll=None
+                ecu_data[ecu_name]["dll"] = dll
+
+                # 读取 ReadDataByIdentifier 信息
+                ecu_data[ecu_name]["ReadDataByIdentifier"] = {}
+                try:
+                    for key, value in config.items(f"{ecu_name}:ReadDataByIdentifier"):
+                        ecu_data[ecu_name]["ReadDataByIdentifier"][key] = value
+                except:
+                    pass
+                # 读取 DIDs 信息
+                ecu_data[ecu_name]["DIDs"] = {}
+                try:
+                    for key, value in config.items(f"{ecu_name}:DIDs"):
+                        ecu_data[ecu_name]["DIDs"][key] = value
+                except:
+                    pass
+
+
+        return ecu_data
+
+    def set_ecu_diag_id(self):
+        ecu_name=self.comboBox_eculist.currentText()
+        self.lineEdit_requestid.setText(self.ecus[ecu_name]['uds_on_can_request_id'])
+        self.lineEdit_responseid.setText(self.ecus[ecu_name]['uds_on_can_response_id'])
+        self.lineEdit_functionid.setText(self.ecus[ecu_name]['uds_on_can_function_id'])
+        self.set_did_list()
+
+    def set_did_list(self):
+        model = QStringListModel()  # 在循环外创建 QStringListModel
+
+        ecu_name = self.comboBox_eculist.currentText()
+
+        string_list = []  # 创建一个空列表存储所有 did
+        for did in self.ecus[ecu_name]['DIDs']:
+            string_list.append(did)  # 将 did 添加到列表中
+
+        model.setStringList(string_list)  # 将所有 did 设置给 model
+
+        self.listView_dids.setModel(model)
+
     def init(self):
+
+        try:
+            self.ecus=self.read_ecu_config()
+            self.comboBox_eculist.clear()
+            for ecu in self.ecus.keys():
+                self.comboBox_eculist.addItem(ecu)
+
+            self.set_ecu_diag_id()
+
+
+
+
+        except:
+            self.comboBox_eculist.setDisabled(True)
+            self.ecus=None
+
         self.send_queue = queue.Queue()
         self.rec_queue = queue.Queue()
 
@@ -77,10 +171,10 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.lineEdit_send.setValidator(regVal)
 
 
-
         self.pushButton_start.clicked.connect(self.run_bus)
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
         self.pushButton_send.clicked.connect(self.send_uds)
+        self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
 
         self.set_canParams()
 
@@ -584,7 +678,15 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 #     def set_send_state(self, error):
 #         self.send_state = error
 
+# 发送保持会话线程
+class canTesterPresentThread(QThread):
+    def __init__(self, conn, send_queue):
+        super().__init__()
 
+# 发送自定义报文线程，如唤醒报文
+class cansendmessageThread(QThread):
+    def __init__(self, conn, send_queue):
+        super().__init__()
 
 class canUDSClientThread(QThread):
     send_data = pyqtSignal(object)
