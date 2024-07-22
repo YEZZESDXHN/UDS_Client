@@ -440,12 +440,36 @@
    </property>
    <widget class="QMenu" name="menu">
     <property name="title">
-     <string>关于</string>
+     <string>Flie</string>
     </property>
+    <addaction name="actionECU_config"/>
+    <addaction name="actionDLL_Folder"/>
+   </widget>
+   <widget class="QMenu" name="menu_2">
+    <property name="title">
+     <string>Help</string>
+    </property>
+    <addaction name="action_about"/>
    </widget>
    <addaction name="menu"/>
+   <addaction name="menu_2"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionECU_config">
+   <property name="text">
+    <string>ECU Config</string>
+   </property>
+  </action>
+  <action name="actionDLL_Folder">
+   <property name="text">
+    <string>DLL Folder</string>
+   </property>
+  </action>
+  <action name="action_about">
+   <property name="text">
+    <string>About</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>

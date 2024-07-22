@@ -2,10 +2,10 @@ import queue
 import sys
 import ctypes
 import time
-
+import os
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
-from PyQt5.QtWidgets import QApplication, QMainWindow
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox
 import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
     VectorCanFdParams
@@ -67,8 +67,69 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         )
 
     def read_ecu_config(self):
+        config_dir = './SecurityAccessDLL'
+
+        # 检查文件夹是否存在，如果不存在则创建
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+
         config = configparser.ConfigParser()
-        config.read('./ECUConfig/DIDList.ini')
+        # 定义配置文件路径
+        config_file = './ECUConfig/DIDList.ini'
+        # 判断文件是否存在，不存在则创建
+        if not os.path.exists(config_file):
+            # 创建目录（如果不存在）
+            os.makedirs(os.path.dirname(config_file), exist_ok=True)
+
+            # 定义要写入的内容
+            content = """
+# Normal_11bits = 0
+# Normal_29bits = 1
+# NormalFixed_29bits = 2
+# Extended_11bits = 3
+# Extended_29bits = 4
+# Mixed_11bits = 5
+# Mixed_29bits = 6
+[viu_f]
+AddressingMode:0
+uds_on_can_request_id : 0x701
+uds_on_can_response_id : 0x601
+uds_on_can_function_id : 0x7df
+
+[viu_f:dll]
+dll:./SecurityAccessDLL/SeednKey.dll
+
+[viu_f:ReadDataByIdentifier]
+F195:ascii
+F194:raw
+
+[viu_f:DIDs]
+read sw version:22F195
+write f189:2ef18900112233445566
+
+[viu_ml]
+AddressingMode:0
+uds_on_can_request_id : 0x702
+uds_on_can_response_id : 0x602
+uds_on_can_function_id : 0x7df
+
+[viu_ml:ReadDataByIdentifier]
+F195:ascii
+F194:raw
+
+[viu_ml:dll]
+dll:send.dll
+
+[viu_ml:DIDs]
+read sw version:22F195
+write f189:2ef18900112233445577
+
+    """
+
+            # 创建文件并写入内容
+            with open(config_file, 'w') as file:
+                file.write(content.strip())
+        config.read(config_file)
         ecu_data = {}
         for ecu_name in config.sections():
             if ":" not in ecu_name:  # 只处理 ECU 名称，不处理子项
@@ -180,6 +241,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
         self.pushButton_send.clicked.connect(self.send_uds)
         self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
+        self.action_about.triggered.connect(self.popup_about)
         # self.checkBox_3E.clicked.connect(self.send_checkBox_3e_signal)
 
         self.set_canParams()
@@ -188,7 +250,8 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
     # def send_checkBox_3e_signal(self):
     #     self.
-
+    def popup_about(self):
+        QMessageBox.information(None, "About", "Version:V1.1\nAuthor:Zhichen Wang\nDate:2024.7.22")
     def refresh_ui(self):
         self.refresh_drive()
         self.update_channel_lists_ui()
@@ -945,6 +1008,7 @@ class MyCodec(DidCodec):
 
 if __name__ == "__main__":
     # 高dpi
+    # QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
     QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     app = QApplication(sys.argv)
     app.setStyle("WindowsVista")
