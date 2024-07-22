@@ -719,20 +719,19 @@ class canTesterPresentThread(QThread):
     def run(self):
         req = Request(services.TesterPresent, subfunction=0,suppress_positive_response=True)
         while True :
-
+            time.sleep(3)
             if self.flag_stop:
                 break
             if self.flag_3e:
 
                 try:
-                    response = self.conn.send_request(req)
-                    print('3e')
+                    self.conn.send_request(req)
                 except Exception as e:
                     print(e)
             else:
                 pass
 
-            time.sleep(3)
+
     def set_3e_flag(self,flag):
         self.flag_3e = flag
     def stop_thread(self):
