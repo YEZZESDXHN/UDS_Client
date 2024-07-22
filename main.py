@@ -203,6 +203,9 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                     'name': channel_list.name,
                     'transceiver_name': channel_list.transceiver_name,
                     'channel_index': channel_list.channel_index,
+                    'hw_type':channel_list.hw_type,
+                    'hw_index': channel_list.hw_index,
+                    'hw_channel': channel_list.hw_channel,
                     'serial_number': channel_list.serial_number,
                     'is_on_bus': channel_list.is_on_bus,
                     'is_support_canfd': bool(channel_list.channel_capabilities.value & \
@@ -210,7 +213,6 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                     'can_op_mode': channel_list.bus_params.can.can_op_mode
                 })
                 # print(channel_list.channel_index)
-
     def update_channel_lists_ui(self):
         self.comboBox_channel.clear()
         for channel in self.vectorConfigs:
@@ -219,7 +221,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
                                           str(channel['transceiver_name']) +
                                           ' ' +
                                           str(channel['serial_number']))
-        if self.channel_choose + 1 > len(self.__vectorAvailableConfigs):
+        if self.channel_choose + 1 > len(self.vectorConfigs):
             self.channel_choose = 0
             self.comboBox_channel.setCurrentIndex(self.channel_choose)
         else:
@@ -290,17 +292,17 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.refresh_ui()
         VectorBus.set_application_config(
             app_name=self.appName,
-            app_channel=self.channel_choose,
-            hw_type=self.__vectorAvailableConfigs[self.channel_choose].hw_type,
-            hw_index=self.__vectorAvailableConfigs[self.channel_choose].hw_index,
-            hw_channel=self.__vectorAvailableConfigs[self.channel_choose].hw_channel
+            app_channel=self.vectorConfigs[self.channel_choose]['channel_index'],
+            hw_type=self.vectorConfigs[self.channel_choose]['hw_type'],
+            hw_index=self.vectorConfigs[self.channel_choose]['hw_index'],
+            hw_channel=self.vectorConfigs[self.channel_choose]['hw_channel'],
         )
         if self.checkBox_bustype.isChecked():
             busParams_dict = self.vectorChannelCanParams.canfd._asdict()
         else:
             busParams_dict = self.vectorChannelCanParams.can._asdict()
 
-        if self.__vectorAvailableConfigs[self.channel_choose].is_on_bus:
+        if self.vectorConfigs[self.channel_choose]["is_on_bus"]:
             self.canbus = VectorBus(
                 channel=self.vectorConfigs[self.channel_choose]['channel_index'],
                 app_name=self.appName,
