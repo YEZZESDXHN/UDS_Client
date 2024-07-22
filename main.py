@@ -1,6 +1,8 @@
 import queue
 import sys
 import ctypes
+import time
+
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow
@@ -178,11 +180,14 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
         self.pushButton_send.clicked.connect(self.send_uds)
         self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
+        # self.checkBox_3E.clicked.connect(self.send_checkBox_3e_signal)
 
         self.set_canParams()
 
         # self.dll_lib=ctypes.WinDLL("./GenerateKeyExImpl.dll")
 
+    # def send_checkBox_3e_signal(self):
+    #     self.
 
     def refresh_ui(self):
         self.refresh_drive()
@@ -230,7 +235,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
     def update_channel_cfg_ui(self):
         self.checkBox_bustype.setDisabled(False)
         self.channel_choose = self.comboBox_channel.currentIndex()
-        self.checkBox_bustype.setDisabled(False)
+        # self.checkBox_bustype.setDisabled(False)
         if self.vectorConfigs[self.channel_choose]['is_on_bus']:
             if self.vectorConfigs[self.channel_choose][
                 'can_op_mode'] & xldefine.XL_CANFD_BusParams_CanOpMode.XL_BUS_PARAMS_CANOPMODE_CAN20:
@@ -256,6 +261,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
     def run_bus(self):
         if self.is_run:
             self.canudsthread.stop_thread()
+            self.canTesterPresentThread.stop_thread()
             self.send_queue.empty()
             self.conn.close()
             self.stack.stop()
@@ -269,6 +275,8 @@ class MainWindows(QMainWindow, Ui_MainWindow):
             self.checkBox_bustype.setDisabled(False)
             self.comboBox_channel.setDisabled(False)
             self.pushButton_send.setDisabled(True)
+            self.checkBox_3E.setDisabled(True)
+
             self.checkBox_sendcanfd.setDisabled(False)
 
             self.lineEdit_responseid.setDisabled(False)
@@ -448,6 +456,8 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
 
         self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue,dll_path=self.dll_path)
+        self.canTesterPresentThread=canTesterPresentThread(conn=self.uds_client)
+        # self.conn.open()
 
         self.canudsthread.send_data.connect(self.print_tx)
         self.canudsthread.rec_data.connect(self.print_rx)
@@ -455,7 +465,12 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
         self.canudsthread.sig_send_state.connect(self.canudsthread.set_send_state)
 
+        self.checkBox_3E.clicked.connect(self.canTesterPresentThread.set_3e_flag)
+
         self.canudsthread.start()
+        self.canTesterPresentThread.start()
+        self.canudsthread.sig_flag_3e.connect(self.canTesterPresentThread.set_3e_flag)
+        self.canudsthread.sig_flag_3e.connect(self.update_3e_ui)
 
         self.is_run = True
 
@@ -464,6 +479,13 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.checkBox_bustype.setDisabled(True)
         self.comboBox_channel.setDisabled(True)
         self.pushButton_send.setDisabled(False)
+        self.checkBox_3E.setDisabled(False)
+
+    def update_3e_ui(self,flag):
+        if flag:
+            self.checkBox_3E.setChecked(True)
+        else:
+            self.checkBox_3E.setChecked(False)
 
     def print_tx(self, data):
         text = 'Tx:' + data.hex(" ").upper() + '\r'
@@ -686,8 +708,36 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
 # 发送保持会话线程
 class canTesterPresentThread(QThread):
-    def __init__(self, conn, send_queue):
+
+    def __init__(self, conn):
         super().__init__()
+        self.conn = conn
+        self.daemon = True  # 设置为守护进程
+        self.flag_3e=False
+        self.flag_stop=False
+
+    def run(self):
+        req = Request(services.TesterPresent, subfunction=0,suppress_positive_response=True)
+        while True :
+
+            if self.flag_stop:
+                break
+            if self.flag_3e:
+
+                try:
+                    response = self.conn.send_request(req)
+                    print('3e')
+                except Exception as e:
+                    print(e)
+            else:
+                pass
+
+            time.sleep(3)
+    def set_3e_flag(self,flag):
+        self.flag_3e = flag
+    def stop_thread(self):
+        self.flag_stop=True
+
 
 # 发送自定义报文线程，如唤醒报文
 class cansendmessageThread(QThread):
@@ -698,7 +748,7 @@ class canUDSClientThread(QThread):
     send_data = pyqtSignal(object)
     rec_data = pyqtSignal(object)
     sig_send_state = pyqtSignal(object)
-
+    sig_flag_3e = pyqtSignal(object)
 
     def __init__(self, conn, send_queue,dll_path):
         super().__init__()
@@ -714,7 +764,7 @@ class canUDSClientThread(QThread):
 
     def run(self):
         self.load_dll(self.dll_path)
-        self.conn.open()
+
         # client=Client(conn=self.conn, config=self.config,request_timeout=2)
         while True:
             try:
@@ -727,6 +777,12 @@ class canUDSClientThread(QThread):
                     response = self.conn.send_request(req)
                     data_raw = response.original_payload
                     self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
+
+                    if data_raw[0]==0x50 and data_raw[1]>1:
+                        self.sig_flag_3e.emit(True)
+                    elif data_raw[0]==0x50 and data_raw[1]==1:
+                        self.sig_flag_3e.emit(False)
+
 
                     if data_raw[0]==0x67 and data_raw[1]==req.get_payload()[1]:
                         # 当前python是64位，解锁dll是32位，无法直接调用，考虑做一个64位dll调用32位dll
@@ -896,3 +952,10 @@ if __name__ == "__main__":
     w = MainWindows()
     w.show()
     sys.exit(app.exec_())
+
+
+
+# Nuitka
+# 打包 Python 项目为可执行文件
+# E:\Studyspace\Python\UDS_Client_ENV_32\Scripts\nuitka.bat
+# --standalone --show-progress --show-memory --remove-output --follow-imports --lto=yes --windows-disable-console --output-dir=$ProjectFileDir$\dist $FileName$

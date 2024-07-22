@@ -194,6 +194,9 @@
       </property>
      </widget>
      <widget class="QCheckBox" name="checkBox_3E">
+      <property name="enabled">
+       <bool>false</bool>
+      </property>
       <property name="geometry">
        <rect>
         <x>0</x>

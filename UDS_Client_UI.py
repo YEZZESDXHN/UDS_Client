@@ -73,6 +73,7 @@ class Ui_MainWindow(object):
         self.pushButton_send.setFlat(False)
         self.pushButton_send.setObjectName("pushButton_send")
         self.checkBox_3E = QtWidgets.QCheckBox(self.CANUDS)
+        self.checkBox_3E.setEnabled(False)
         self.checkBox_3E.setGeometry(QtCore.QRect(0, 30, 111, 23))
         self.checkBox_3E.setObjectName("checkBox_3E")
         self.checkBox_sendcanfd = QtWidgets.QCheckBox(self.CANUDS)
