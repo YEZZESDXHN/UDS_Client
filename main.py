@@ -254,7 +254,7 @@ write f189:2ef18900112233445577
     # def send_checkBox_3e_signal(self):
     #     self.
     def popup_about(self):
-        QMessageBox.information(None, "About", "Version:V1.1\nAuthor:Zhichen Wang\nDate:2024.7.22")
+        QMessageBox.information(None, "About", "Version:V1.2\nAuthor:Zhichen Wang\nDate:2024.7.24")
     def refresh_ui(self):
         self.refresh_drive()
         self.update_channel_lists_ui()
