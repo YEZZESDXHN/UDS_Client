@@ -231,7 +231,7 @@ write f189:2ef18900112233445577
         # self.dll_lib=ctypes.WinDLL("./SeednKey.dll")
 
         # self.lineEdit_send.setInputMethodHints(Qt.InputMethodHint)
-        reg = QRegExp("[a-fA-F0-9]+$")
+        reg = QRegExp("[a-fA-F0-9 ]+$")
         regVal = QRegExpValidator()
         regVal.setRegExp(reg)
         self.lineEdit_send.setValidator(regVal)
