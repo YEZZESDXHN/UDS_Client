@@ -240,6 +240,8 @@ write f189:2ef18900112233445577
         self.pushButton_start.clicked.connect(self.run_bus)
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
         self.pushButton_send.clicked.connect(self.send_uds)
+
+        self.listView_dids.doubleClicked.connect(self.send_uds_listView_dids)
         self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
         self.action_about.triggered.connect(self.popup_about)
         # self.checkBox_3E.clicked.connect(self.send_checkBox_3e_signal)
@@ -338,6 +340,7 @@ write f189:2ef18900112233445577
             self.checkBox_bustype.setDisabled(False)
             self.comboBox_channel.setDisabled(False)
             self.pushButton_send.setDisabled(True)
+            self.listView_dids.setDisabled(True)
             self.checkBox_3E.setDisabled(True)
 
             self.checkBox_sendcanfd.setDisabled(False)
@@ -535,6 +538,8 @@ write f189:2ef18900112233445577
         self.canudsthread.sig_flag_3e.connect(self.canTesterPresentThread.set_3e_flag)
         self.canudsthread.sig_flag_3e.connect(self.update_3e_ui)
 
+        # self.listView_dids.doubleClicked.connect()
+
         self.is_run = True
 
         self.pushButton_start.setText('Stop')
@@ -542,6 +547,7 @@ write f189:2ef18900112233445577
         self.checkBox_bustype.setDisabled(True)
         self.comboBox_channel.setDisabled(True)
         self.pushButton_send.setDisabled(False)
+        self.listView_dids.setDisabled(False)
         self.checkBox_3E.setDisabled(False)
 
     def update_3e_ui(self,flag):
@@ -700,6 +706,21 @@ write f189:2ef18900112233445577
         # 队列过多时不响应发送请求
         if self.send_queue.qsize() <= 2:
             data_str = self.lineEdit_send.text()
+            try:
+                uds_bytes = self.str_to_bytes(data_str)
+                req = self.make_uds_request(uds_bytes)
+                if req is not None:
+                    self.send_queue.put(req)
+                else:
+                    print('req == None')
+            except ValueError as e:
+                print(e)
+
+    def send_uds_listView_dids(self,index):
+        # 队列过多时不响应发送请求
+        if self.send_queue.qsize() <= 3:
+            ecu_name = self.comboBox_eculist.currentText()
+            data_str = self.ecus[ecu_name]['DIDs'][index.data()]
             try:
                 uds_bytes = self.str_to_bytes(data_str)
                 req = self.make_uds_request(uds_bytes)
