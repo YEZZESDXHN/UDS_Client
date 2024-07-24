@@ -3,3 +3,5 @@ CANoe
 ENV
 Load_32dll
 dist
+build
+*.spec
