@@ -244,6 +244,7 @@ write f189:2ef18900112233445577
         self.listView_dids.doubleClicked.connect(self.send_uds_listView_dids)
         self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
         self.action_about.triggered.connect(self.popup_about)
+        self.comboBox_eculist.activated.connect(self.send_ecu_name)
         # self.checkBox_3E.clicked.connect(self.send_checkBox_3e_signal)
 
         self.set_canParams()
@@ -532,15 +533,18 @@ write f189:2ef18900112233445577
         self.canudsthread.sig_send_state.connect(self.canudsthread.set_send_state)
 
         self.checkBox_3E.clicked.connect(self.canTesterPresentThread.set_3e_flag)
+        self.canudsthread.sig_ecu_name.connect(self.canudsthread.set_ecu_name)
 
         self.canudsthread.start()
         self.canTesterPresentThread.start()
         self.canudsthread.sig_flag_3e.connect(self.canTesterPresentThread.set_3e_flag)
         self.canudsthread.sig_flag_3e.connect(self.update_3e_ui)
+        # self.send_ecu_name()
 
         # self.listView_dids.doubleClicked.connect()
 
         self.is_run = True
+        self.send_ecu_name()
 
         self.pushButton_start.setText('Stop')
 
@@ -550,6 +554,10 @@ write f189:2ef18900112233445577
         self.listView_dids.setDisabled(False)
         self.checkBox_3E.setDisabled(False)
 
+    def send_ecu_name(self):
+        if self.is_run:
+            ecu_name = self.comboBox_eculist.currentText()
+            self.canudsthread.sig_ecu_name.emit(ecu_name)
     def update_3e_ui(self,flag):
         if flag:
             self.checkBox_3E.setChecked(True)
@@ -832,6 +840,7 @@ class canUDSClientThread(QThread):
     rec_data = pyqtSignal(object)
     sig_send_state = pyqtSignal(object)
     sig_flag_3e = pyqtSignal(object)
+    sig_ecu_name=pyqtSignal(object)
 
     def __init__(self, conn, send_queue,dll_path,ecus):
         super().__init__()
@@ -845,6 +854,7 @@ class canUDSClientThread(QThread):
         self.dll_lib = None
         self.generated_key =None
         self.is_ascii=False
+        self.ecu_name=None
 
 
     def run(self):
@@ -862,29 +872,19 @@ class canUDSClientThread(QThread):
                     response = self.conn.send_request(req)
                     data_raw = response.original_payload
                     if data_raw[0]==0x62:# ReadDataByIdentifier
-                        did=hex(data_raw[1]*0x100+data_raw[0])
-                        did_upper=did.upper()
-
-                        ecu_name = self.comboBox_eculist.currentText()
-
+                        did=hex(data_raw[1]*0x100+data_raw[2])
                         try:
-                            isascii=self.ecus[ecu_name]['ReadDataByIdentifier'][did]
+                            isascii=self.ecus[self.ecu_name]['ReadDataByIdentifier'][did]
                             if isascii=='ascii':
                                 self.is_ascii=True
                             else:
                                 self.is_ascii = False
 
                         except:
-                            isascii=self.ecus[ecu_name]['ReadDataByIdentifier'][did_upper]
-                            if isascii=='ascii':
-                                self.is_ascii=True
-                            else:
-                                self.is_ascii = False
-                        finally:
                             self.is_ascii = False
 
                     if self.is_ascii:
-                        self.rec_data.emit(f"Positive: {data_raw[2:].decode('ascii')}\r")
+                        self.rec_data.emit(f"Positive: {data_raw[3:].decode('ascii')}\r")
                     else:
                         self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
 
@@ -907,7 +907,6 @@ class canUDSClientThread(QThread):
 
                         length = len(data_raw)
                         seed_bytes = data_raw[2:length]
-                        print(length)
                         seed_array = (ctypes.c_ubyte * len(seed_bytes))(*seed_bytes)
                         seed_length = ctypes.c_uint(len(seed_bytes))
                         security_level = ctypes.c_uint(data_raw[1])
@@ -1052,6 +1051,8 @@ class canUDSClientThread(QThread):
 
     def set_send_state(self, error):
         self.send_state = error
+    def set_ecu_name(self,ecu_name):
+        self.ecu_name=ecu_name
 
 class MyCodec(DidCodec):
     def encode(self, val):
