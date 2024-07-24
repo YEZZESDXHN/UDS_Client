@@ -100,8 +100,8 @@ uds_on_can_function_id : 0x7df
 dll:./SecurityAccessDLL/SeednKey.dll
 
 [viu_f:ReadDataByIdentifier]
-F195:ascii
-F194:raw
+0xF195:ascii
+0xF194:raw
 
 [viu_f:DIDs]
 read sw version:22F195
@@ -114,11 +114,11 @@ uds_on_can_response_id : 0x602
 uds_on_can_function_id : 0x7df
 
 [viu_ml:ReadDataByIdentifier]
-F195:ascii
-F194:raw
+0xF195:ascii
+0xF194:raw
 
 [viu_ml:dll]
-dll:send.dll
+dll:./SecurityAccessDLL/send.dll
 
 [viu_ml:DIDs]
 read sw version:22F195
@@ -521,7 +521,7 @@ write f189:2ef18900112233445577
 
 
 
-        self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue,dll_path=self.dll_path)
+        self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue,dll_path=self.dll_path,ecus=self.ecus)
         self.canTesterPresentThread=canTesterPresentThread(conn=self.uds_client)
         # self.conn.open()
 
@@ -833,16 +833,18 @@ class canUDSClientThread(QThread):
     sig_send_state = pyqtSignal(object)
     sig_flag_3e = pyqtSignal(object)
 
-    def __init__(self, conn, send_queue,dll_path):
+    def __init__(self, conn, send_queue,dll_path,ecus):
         super().__init__()
         self.daemon = True  # 设置为守护进程
         self.conn = conn
+        self.ecus=ecus
         self.send_queue = send_queue
         self.stop_flag = 0;
         self.send_state = 'Normal'
         self.dll_path=dll_path
         self.dll_lib = None
         self.generated_key =None
+        self.is_ascii=False
 
 
     def run(self):
@@ -859,12 +861,44 @@ class canUDSClientThread(QThread):
                 try:
                     response = self.conn.send_request(req)
                     data_raw = response.original_payload
-                    self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
+                    if data_raw[0]==0x62:# ReadDataByIdentifier
+                        did=hex(data_raw[1]*0x100+data_raw[0])
+                        did_upper=did.upper()
+
+                        ecu_name = self.comboBox_eculist.currentText()
+
+                        try:
+                            isascii=self.ecus[ecu_name]['ReadDataByIdentifier'][did]
+                            if isascii=='ascii':
+                                self.is_ascii=True
+                            else:
+                                self.is_ascii = False
+
+                        except:
+                            isascii=self.ecus[ecu_name]['ReadDataByIdentifier'][did_upper]
+                            if isascii=='ascii':
+                                self.is_ascii=True
+                            else:
+                                self.is_ascii = False
+                        finally:
+                            self.is_ascii = False
+
+                    if self.is_ascii:
+                        self.rec_data.emit(f"Positive: {data_raw[2:].decode('ascii')}\r")
+                    else:
+                        self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
 
                     if data_raw[0]==0x50 and data_raw[1]>1:
                         self.sig_flag_3e.emit(True)
                     elif data_raw[0]==0x50 and data_raw[1]==1:
                         self.sig_flag_3e.emit(False)
+
+
+
+
+
+
+
 
 
                     if data_raw[0]==0x67 and data_raw[1]==req.get_payload()[1]:
