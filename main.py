@@ -340,6 +340,7 @@ write f189:2ef18900112233445577
 
             self.checkBox_bustype.setDisabled(False)
             self.comboBox_channel.setDisabled(False)
+            self.comboBox_eculist.setDisabled(False)
             self.pushButton_send.setDisabled(True)
             self.listView_dids.setDisabled(True)
             self.checkBox_3E.setDisabled(True)
@@ -553,6 +554,7 @@ write f189:2ef18900112233445577
         self.pushButton_send.setDisabled(False)
         self.listView_dids.setDisabled(False)
         self.checkBox_3E.setDisabled(False)
+        self.comboBox_eculist.setDisabled(True)
 
     def send_ecu_name(self):
         if self.is_run:
