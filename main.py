@@ -5,7 +5,7 @@ import time
 import os
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
-from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QAbstractItemView
 import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
     VectorCanFdParams
@@ -242,6 +242,9 @@ write f189:2ef18900112233445577
         self.pushButton_send.clicked.connect(self.send_uds)
 
         self.listView_dids.doubleClicked.connect(self.send_uds_listView_dids)
+
+        # 屏蔽双击编辑
+        self.listView_dids.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
         self.action_about.triggered.connect(self.popup_about)
         self.comboBox_eculist.activated.connect(self.send_ecu_name)
