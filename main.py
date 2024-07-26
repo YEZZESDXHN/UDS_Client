@@ -3,6 +3,7 @@ import sys
 import ctypes
 import time
 import os
+
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QAbstractItemView
@@ -10,7 +11,8 @@ import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
     VectorCanFdParams
 from udsoncan import NegativeResponseException, TimeoutException, UnexpectedResponseException, InvalidResponseException, \
-    services, Request,  DidCodec, ConfigError
+    services, Request, DidCodec, ConfigError, MemoryLocation
+from udsoncan.services import RequestDownload
 
 from UDS_Client_UI import Ui_MainWindow
 import isotp
@@ -249,6 +251,7 @@ write f189:2ef18900112233445577
         self.action_about.triggered.connect(self.popup_about)
         self.comboBox_eculist.activated.connect(self.send_ecu_name)
         # self.checkBox_3E.clicked.connect(self.send_checkBox_3e_signal)
+        self.pushButton_flash.clicked.connect(self.start_flash)
 
         self.set_canParams()
 
@@ -256,6 +259,12 @@ write f189:2ef18900112233445577
 
     # def send_checkBox_3e_signal(self):
     #     self.
+    def start_flash(self):
+        self.flash_thread=canFlashThread(conn=self.uds_client, dll_path=self.dll_path)
+
+        self.pushButton_flash.setDisabled(True)
+        self.flash_thread.sig_flash_info.connect(self.print_flash_info)
+        self.flash_thread.start()
     def popup_about(self):
         QMessageBox.information(None, "About", "Version:V1.2\nAuthor:Zhichen Wang\nDate:2024.7.24")
     def refresh_ui(self):
@@ -345,6 +354,7 @@ write f189:2ef18900112233445577
             self.comboBox_channel.setDisabled(False)
             self.comboBox_eculist.setDisabled(False)
             self.pushButton_send.setDisabled(True)
+            self.pushButton_flash.setDisabled(True)
             self.listView_dids.setDisabled(True)
             self.checkBox_3E.setDisabled(True)
 
@@ -559,6 +569,8 @@ write f189:2ef18900112233445577
         self.checkBox_3E.setDisabled(False)
         self.comboBox_eculist.setDisabled(True)
 
+        self.pushButton_flash.setDisabled(False)
+
     def send_ecu_name(self):
         if self.is_run:
             ecu_name = self.comboBox_eculist.currentText()
@@ -580,6 +592,13 @@ write f189:2ef18900112233445577
         # self.textEdit_trace.moveCursor(QTextCursor.End)
         self.textEdit_trace.insertPlainText(data)
         self.textEdit_trace.moveCursor(QTextCursor.End)
+
+    def print_flash_info(self, data):
+        # text = 'Rx:' + data.hex(" ").upper() + '\r'
+        # self.textEdit_trace.insertPlainText(text)
+        # self.textEdit_trace.moveCursor(QTextCursor.End)
+        self.textBrowser_flashinfo.insertPlainText(data)
+        self.textBrowser_flashinfo.moveCursor(QTextCursor.End)
 
     def handle_error(self, error):
 
@@ -803,6 +822,189 @@ write f189:2ef18900112233445577
 #     def set_send_state(self, error):
 #         self.send_state = error
 
+class canFlashThread(QThread):
+    sig_flash_info=pyqtSignal(object)
+
+    def __init__(self, conn,dll_path):
+        super().__init__()
+        self.conn = conn
+        self.daemon = True  # 设置为守护进程
+        self.send_state = 'Normal'
+        self.dll_path = dll_path
+        self.dll_lib = None
+
+    def run(self):
+        self.load_dll(self.dll_path)
+
+
+        req = Request(services.DiagnosticSessionControl, subfunction=3)
+        self.request_and_response(req)
+
+        req = Request(services.DiagnosticSessionControl, subfunction=2)
+        self.request_and_response(req)
+
+        req = Request(services.SecurityAccess, subfunction=0x11)
+        self.request_and_response(req)
+
+        # req = Request(services.RequestDownload, subfunction=11)
+        # self.request_and_response(req)
+
+        # 下载参数
+
+
+        memory_address = 0x2000
+        memory_size = 1024
+        data_format = 0x00
+        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size)  # 替换为你需要的地址和大小
+        req = RequestDownload.make_request(memory_location)
+        
+
+
+        self.request_and_response(req)
+
+    def request_and_response(self,req):
+        try:
+            response = self.conn.send_request(req)
+
+            data_raw = response.original_payload
+
+
+
+
+            if data_raw[0] == 0x67 and data_raw[1] == req.get_payload()[1]:
+                # 当前python是64位，解锁dll是32位，无法直接调用，考虑做一个64位dll调用32位dll
+                # 此处回复key是固定值，待实现调用dll后再完成发送key的功能
+                length = len(data_raw)
+                seed_bytes = data_raw[2:length]
+                seed_array = (ctypes.c_ubyte * len(seed_bytes))(*seed_bytes)
+                seed_length = ctypes.c_uint(len(seed_bytes))
+                security_level = ctypes.c_uint(data_raw[1])
+                variant_string = None
+                Options_string = None
+
+                # 准备输出数据
+                max_key_size = length - 2
+                key_array = (ctypes.c_ubyte * max_key_size)()
+                actual_key_size = ctypes.c_uint()
+
+                # 定义函数的返回类型和参数类型
+                try:
+                    self.dll_lib.GenerateKeyEx.restype = ctypes.c_int
+                    self.dll_lib.GenerateKeyEx.argtypes = [
+                        ctypes.POINTER(ctypes.c_ubyte),  # ipSeedArray
+                        ctypes.c_uint,  # iSeedArraySize
+                        ctypes.c_uint,  # iSecurityLevel
+                        ctypes.POINTER(ctypes.c_char),  # ipVariant
+                        ctypes.POINTER(ctypes.c_ubyte),  # iopKeyArray
+                        ctypes.c_uint,  # iMaxKeyArraySize
+                        ctypes.POINTER(ctypes.c_uint)  # oActualKeyArraySize
+                    ]
+
+                    # 调用DLL函数
+                    result = self.dll_lib.GenerateKeyEx(
+                        seed_array,  # ipSeedArray
+                        seed_length,  # iSeedArraySize
+                        security_level,  # iSecurityLevel
+                        ctypes.POINTER(ctypes.c_char)(),  # ipVariant (None or empty)
+                        key_array,  # iopKeyArray
+                        ctypes.c_uint(max_key_size),  # iMaxKeyArraySize
+                        ctypes.byref(actual_key_size)  # oActualKeyArraySize
+                    )
+
+                    # 检查返回值
+                    if result == 0:
+                        self.generated_key = bytearray(key_array)[:actual_key_size.value]
+                    else:
+                        self.generated_key = None
+
+                except AttributeError as e:
+                    self.generated_key = None
+
+                except Exception as e:
+                    self.generated_key = None
+
+                if self.generated_key == None:
+                    try:
+                        self.dll_lib.GenerateKeyExOpt.restype = ctypes.c_int
+                        self.dll_lib.GenerateKeyExOpt.argtypes = [
+                            ctypes.POINTER(ctypes.c_ubyte),  # ipSeedArray
+                            ctypes.c_uint,  # iSeedArraySize
+                            ctypes.c_uint,  # iSecurityLevel
+                            ctypes.POINTER(ctypes.c_char),  # ipVariant
+                            ctypes.POINTER(ctypes.c_char),  # ipOptions
+                            ctypes.POINTER(ctypes.c_ubyte),  # iopKeyArray
+                            ctypes.c_uint,  # iMaxKeyArraySize
+                            ctypes.POINTER(ctypes.c_uint)  # oActualKeyArraySize
+                        ]
+
+                        # 调用DLL函数
+                        result = self.dll_lib.GenerateKeyExOpt(
+                            seed_array,  # ipSeedArray
+                            seed_length,  # iSeedArraySize
+                            security_level,  # iSecurityLevel
+                            ctypes.POINTER(ctypes.c_char)(),  # ipVariant (None or empty)
+                            ctypes.POINTER(ctypes.c_char)(),  # ipVariant (None or empty)
+                            key_array,  # iopKeyArray
+                            ctypes.c_uint(max_key_size),  # iMaxKeyArraySize
+                            ctypes.byref(actual_key_size)  # oActualKeyArraySize
+                        )
+
+                        # 检查返回值
+                        if result == 0:
+                            self.generated_key = bytearray(key_array)[:actual_key_size.value]
+                        else:
+                            self.generated_key = None
+
+                    except AttributeError as e:
+                        self.generated_key = None
+
+                    except Exception as e:
+                        self.generated_key = None
+
+                if self.generated_key == None:
+                    self.generated_key = bytes([0x00] * (length - 2))
+
+                req1 = Request(services.SecurityAccess, subfunction=data_raw[1] + 1, data=bytes(self.generated_key))
+                self.conn.send_request(req1)
+
+                self.sig_flash_info.emit(f"Level {data_raw[1]} SecurityAccess success\r")
+
+
+
+
+
+        except NegativeResponseException as e:
+            self.sig_flash_info.emit(f"Negative response: {e.response.code_name}\r")
+        except InvalidResponseException as e:
+            data_raw = e.response.original_payload
+            self.sig_flash_info.emit(f"Invalid Response: {data_raw.hex(' ')}\r")
+
+        except UnexpectedResponseException as e:
+            data_raw = e.response.original_payload
+            self.sig_flash_info.emit(f"Unexpected Response: {data_raw.hex(' ')}\r")
+        except ConfigError as e:
+            self.sig_flash_info.emit(str(e) + '\r')
+        except TimeoutException as e:
+            if self.send_state != 'Normal':
+                self.send_state = 'Normal'
+                pass
+            else:
+                self.sig_flash_info.emit(str(e) + '\r')
+        except Exception as e:
+            self.sig_flash_info.emit(str(e) + '\r')
+    def load_dll(self,dll_path):
+        try:
+            self.dll_lib=ctypes.WinDLL(dll_path)
+        except:
+            self.dll_lib=None
+
+
+    def set_send_state(self, error):
+        self.send_state = error
+
+
+
+
 # 发送保持会话线程
 class canTesterPresentThread(QThread):
 
@@ -890,6 +1092,7 @@ class canUDSClientThread(QThread):
 
                     if self.is_ascii:
                         self.rec_data.emit(f"Positive: {data_raw[3:].decode('ascii')}\r")
+                        self.is_ascii=False
                     else:
                         self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
 

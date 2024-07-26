@@ -243,6 +243,64 @@
      <attribute name="title">
       <string>CAN Flash</string>
      </attribute>
+     <widget class="QCheckBox" name="checkBox_flashcanfd">
+      <property name="enabled">
+       <bool>true</bool>
+      </property>
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>10</y>
+        <width>68</width>
+        <height>23</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>CANFD</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="pushButton_flash">
+      <property name="enabled">
+       <bool>false</bool>
+      </property>
+      <property name="geometry">
+       <rect>
+        <x>330</x>
+        <y>20</y>
+        <width>75</width>
+        <height>23</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Start_Flash</string>
+      </property>
+     </widget>
+     <widget class="QProgressBar" name="progressBar">
+      <property name="enabled">
+       <bool>false</bool>
+      </property>
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>140</y>
+        <width>191</width>
+        <height>23</height>
+       </rect>
+      </property>
+      <property name="value">
+       <number>0</number>
+      </property>
+     </widget>
+     <widget class="QTextBrowser" name="textBrowser_flashinfo">
+      <property name="geometry">
+       <rect>
+        <x>330</x>
+        <y>50</y>
+        <width>256</width>
+        <height>192</height>
+       </rect>
+      </property>
+     </widget>
     </widget>
     <widget class="QWidget" name="DoIPUDS">
      <attribute name="title">
@@ -438,7 +496,7 @@
      <x>0</x>
      <y>0</y>
      <width>725</width>
-     <height>26</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu">
