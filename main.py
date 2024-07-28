@@ -3,6 +3,7 @@ import sys
 import ctypes
 import time
 import os
+from intelhex import IntelHex
 
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
@@ -11,8 +12,8 @@ import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
     VectorCanFdParams
 from udsoncan import NegativeResponseException, TimeoutException, UnexpectedResponseException, InvalidResponseException, \
-    services, Request, DidCodec, ConfigError, MemoryLocation
-from udsoncan.services import RequestDownload
+    services, Request, DidCodec, ConfigError, MemoryLocation, DataFormatIdentifier
+from udsoncan.services import RequestDownload, TransferData
 
 from UDS_Client_UI import Ui_MainWindow
 import isotp
@@ -442,8 +443,10 @@ write f189:2ef18900112233445577
                                 functional_id=functionalid)
         # tp_addr = isotp.Address(isotp.AddressingMode.Normal_29bits, txid=txid, rxid=rxid,
         #                         functional_id=functionalid)
-
-
+        if self.checkBox_sendcanfd.isChecked():
+            tx_data_length=64
+        else:
+            tx_data_length=8
         isotpparams = {
             'blocking_send': False,
             'stmin': 32,
@@ -451,15 +454,19 @@ write f189:2ef18900112233445577
             'blocksize': 8,
             # Request the sender to send 8 consecutives frames before sending a new flow control message
             'wftmax': 0,  # Number of wait frame allowed before triggering an error
-            'tx_data_length': 8,  # Link layer (CAN layer) works with 8 byte payload (CAN 2.0)
+            'tx_data_length': tx_data_length,  # Link layer (CAN layer) works with 8 byte payload (CAN 2.0)
             # Minimum length of CAN messages. When different from None, messages are padded to meet this length. Works with CAN 2.0 and CAN FD.
-            'tx_data_min_length': None,
+            'tx_data_min_length': 8,
             'tx_padding': 0,  # Will pad all transmitted CAN messages with byte 0x00.
             'rx_flowcontrol_timeout': 1000,
             # Triggers a timeout if a flow control is awaited for more than 1000 milliseconds
             'rx_consecutive_frame_timeout': 1000,
-            # Triggers a timeout if a consecutive frame is awaited for more than 1000 milliseconds
-            'override_receiver_stmin': 0,
+            # Time in seconds to wait between consecutive frames when transmitting.
+            # When set, this value will override the receiver stmin requirement.
+            # When None, the receiver stmin parameter will be respected.
+            # This parameter can be useful to speed up a transmission by setting a value of 0 (send as fast as possible)
+            # on a system that has low execution priority or coarse thread resolution
+            'override_receiver_stmin': None,
             # When sending, respect the stmin requirement of the receiver. If set to True, go as fast as possible.
             'max_frame_size': 4095,  # Limit the size of receive frame.
             'can_fd': self.checkBox_sendcanfd.isChecked(),  # Does not set the can_fd flag on the output CAN messages
@@ -486,20 +493,17 @@ write f189:2ef18900112233445577
         # conn.close()
         # stack.stop()
 
-
-
         config = dict(udsoncan.configs.default_client_config)
         config['p2_timeout']=1.5
+
         # config['data_identifiers'] = {
         #     'default': '>H',  # Default codec is a struct.pack/unpack string. 16bits little endian
         #     0xF190: udsoncan.AsciiCodec(15),  # Codec that read ASCII string. We must tell the length of the string
         #     0xf110:MyCodec()
         # }
 
-
-        self.uds_client=Client(self.conn, request_timeout=2, config=config)
+        self.uds_client=Client(self.conn, config=config)
         self.uds_client.open()
-
         # try:
         #     response = self.uds_client.test_data_identifier([0xF195])
         #
@@ -659,6 +663,7 @@ write f189:2ef18900112233445577
         if uds_bytes[0] == 0x10:
             print('DiagnosticSessionControl')
             req = Request(services.DiagnosticSessionControl, subfunction=uds_bytes[1])
+
 
             return req
         elif uds_bytes[0] == 0x11:
@@ -832,35 +837,157 @@ class canFlashThread(QThread):
         self.send_state = 'Normal'
         self.dll_path = dll_path
         self.dll_lib = None
+        self.flash_hex_data=[]
+        self.flash_temp_list=[]
+        self.hex_path='LED_Blink.hex'
+
+        self.dataFormatIdentifier = DataFormatIdentifier(compression=0x0, encryption=0x0)  # 不使用压缩，不加密
+        self.lengthFormatIdentifier=None
+        self.lengthFormatIdentifier=0
+        self.maxNumberOfBlockLength=0
+        self.blockSequenceCounter=0
+
+        self.is_stop=False
+    def stop(self):
+        self.is_stop=True
+
+    def request_extended(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"请求拓展会话\n")
+        req = Request(services.DiagnosticSessionControl, subfunction=3)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def request_programming(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"请求编程会话\n")
+        req = Request(services.DiagnosticSessionControl, subfunction=2)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def request_unlock(self,level):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"开始level {level}解锁\n")
+        req = Request(services.SecurityAccess, subfunction=level)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def request_download(self):
+        if self.is_stop:
+            return
+        # 下载参数
+        # self.load_hex(self.hex_path)
+        memory_address = self.flash_hex_data[2]["start_address"]
+        memory_size = self.flash_hex_data[2]["size"]
+        self.sig_flash_info.emit(f"请求下载,memory_address:{hex(memory_address)},memory_size:{hex(memory_size)}\n")
+        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size)
+        req = RequestDownload.make_request(memory_location=memory_location, dfi=self.dataFormatIdentifier)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def request_TransferData(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"开始数据传输\n...\n")
+        self.flash_temp_list = self.chunk_data(self.flash_hex_data[2]['data'], self.maxNumberOfBlockLength - 2)
+        self.blockSequenceCounter = 0
+        self.conn.set_config(key='p2_timeout', value=5)
+        for block in self.flash_temp_list:
+            self.blockSequenceCounter = (self.blockSequenceCounter + 1) & 0xff
+            req = TransferData.make_request(self.blockSequenceCounter, block)
+            self.request_and_response(req)
+        self.conn.set_config(key='p2_timeout', value=1.5)
+        self.blockSequenceCounter = 0
+        self.sig_flash_info.emit(f"数据传输完成\n")
+        time.sleep(0.5)
+
+
+    def Integrity_check(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"完整性检查\n")
+        req = Request(services.RoutineControl, subfunction=1,data=b'\x02\x02')
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def Erasememory(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"擦除app内存\n")
+        req = Request(services.RoutineControl, subfunction=1, data=b'\xff\x00\x44')
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+
+
+
+
+
+
+
+
+
+
+
 
     def run(self):
         self.load_dll(self.dll_path)
 
+        self.request_extended()
 
-        req = Request(services.DiagnosticSessionControl, subfunction=3)
-        self.request_and_response(req)
+        self.request_programming()
 
-        req = Request(services.DiagnosticSessionControl, subfunction=2)
-        self.request_and_response(req)
+        self.request_unlock(0x11)
 
-        req = Request(services.SecurityAccess, subfunction=0x11)
-        self.request_and_response(req)
+        self.request_download()
 
-        # req = Request(services.RequestDownload, subfunction=11)
-        # self.request_and_response(req)
+        self.request_TransferData()
 
-        # 下载参数
+        self.Integrity_check()
 
 
-        memory_address = 0x2000
-        memory_size = 1024
-        data_format = 0x00
-        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size)  # 替换为你需要的地址和大小
-        req = RequestDownload.make_request(memory_location)
-        
 
 
-        self.request_and_response(req)
+    def chunk_data(self,data, NumberOfBlockLength):
+        """将数据分割成指定大小的块。
+
+        Args:
+          data: 要分割的字节数据。
+          block_size: 每个数据块的大小（以字节为单位）。
+
+        Returns:
+          包含数据块的列表。
+        """
+        data_chunks = []
+        start = 0
+        while start < len(data):
+            end = min(start + NumberOfBlockLength, len(data))  # 确保不超出数据边界
+            data_chunks.append(data[start:end])
+            start += NumberOfBlockLength
+        return data_chunks
+
+
+    def load_hex(self,path):
+        ih = IntelHex()
+        ih.loadhex(path)
+
+        self.flash_hex_data.clear()
+
+        for start, end in ih.segments():
+            # 获取当前块的数据
+            data = ih.tobinstr(start=start, end=end)
+
+            # 将块信息添加到列表中
+            self.flash_hex_data.append({
+                "start_address": start,
+                "end_address": end,
+                "size": end-start,
+                "data": data
+            })
+
 
     def request_and_response(self,req):
         try:
@@ -868,8 +995,32 @@ class canFlashThread(QThread):
 
             data_raw = response.original_payload
 
+            if data_raw[0] == 0x50:
+                if data_raw[1]==0x03:
+                    self.sig_flash_info.emit(f"进入拓展会话成功\n")
+                elif data_raw[1]==0x02:
+                    self.sig_flash_info.emit(f"进入编程会话成功\n")
 
+            if data_raw[0] == 0x74:
 
+                self.lengthFormatIdentifier=data_raw[1] >> 4
+                if len(data_raw) < self.lengthFormatIdentifier+2:
+                    self.sig_flash_info.emit(f"下载请求回复异常，data:{data_raw.hex(' ')}\n")
+                    self.stop()
+                    return
+                max_block_length_bytes = data_raw[2:2+self.lengthFormatIdentifier]
+                self.maxNumberOfBlockLength=int.from_bytes(max_block_length_bytes, byteorder='big')
+                self.sig_flash_info.emit(f"下载请求成功，maxNumberOfBlockLength:{self.maxNumberOfBlockLength}\n")
+
+            if data_raw[0] == 0x76:
+                exp_Sequence=req.get_payload()[1]
+                if data_raw[1] == exp_Sequence:
+                    pass
+                else:
+                    self.sig_flash_info.emit(f"TransferData error, response Sequence is {data_raw[1]},"
+                                             f"but expected Sequence is {exp_Sequence}\r")
+                    self.stop()
+                    return
 
             if data_raw[0] == 0x67 and data_raw[1] == req.get_payload()[1]:
                 # 当前python是64位，解锁dll是32位，无法直接调用，考虑做一个64位dll调用32位dll
@@ -975,23 +1126,29 @@ class canFlashThread(QThread):
 
         except NegativeResponseException as e:
             self.sig_flash_info.emit(f"Negative response: {e.response.code_name}\r")
+            self.stop()
         except InvalidResponseException as e:
             data_raw = e.response.original_payload
             self.sig_flash_info.emit(f"Invalid Response: {data_raw.hex(' ')}\r")
+            self.stop()
 
         except UnexpectedResponseException as e:
             data_raw = e.response.original_payload
             self.sig_flash_info.emit(f"Unexpected Response: {data_raw.hex(' ')}\r")
+            self.stop()
         except ConfigError as e:
             self.sig_flash_info.emit(str(e) + '\r')
+            self.stop()
         except TimeoutException as e:
             if self.send_state != 'Normal':
                 self.send_state = 'Normal'
                 pass
             else:
                 self.sig_flash_info.emit(str(e) + '\r')
+                self.stop()
         except Exception as e:
             self.sig_flash_info.emit(str(e) + '\r')
+            self.stop()
     def load_dll(self,dll_path):
         try:
             self.dll_lib=ctypes.WinDLL(dll_path)
