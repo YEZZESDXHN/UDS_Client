@@ -4,6 +4,7 @@ import ctypes
 import time
 import os
 from intelhex import IntelHex
+import crcmod
 
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
@@ -265,7 +266,11 @@ write f189:2ef18900112233445577
 
         self.pushButton_flash.setDisabled(True)
         self.flash_thread.sig_flash_info.connect(self.print_flash_info)
+        self.flash_thread.sig_flash_is_stop.connect(self.update_flash_pushButton)
         self.flash_thread.start()
+    def update_flash_pushButton(self,flash_is_stop):
+        if flash_is_stop:
+            self.pushButton_flash.setDisabled(False)
     def popup_about(self):
         QMessageBox.information(None, "About", "Version:V1.2\nAuthor:Zhichen Wang\nDate:2024.7.24")
     def refresh_ui(self):
@@ -466,8 +471,10 @@ write f189:2ef18900112233445577
             # When None, the receiver stmin parameter will be respected.
             # This parameter can be useful to speed up a transmission by setting a value of 0 (send as fast as possible)
             # on a system that has low execution priority or coarse thread resolution
-            'override_receiver_stmin': None,
-            # When sending, respect the stmin requirement of the receiver. If set to True, go as fast as possible.
+            'override_receiver_stmin': 0,
+            # 传输时连续帧之间等待的时间（以秒为单位）。
+            # 设置后，此值将覆盖接收器stmin要求。当 时None，将遵守接收器 stmin参数。
+            # 在执行优先级较低或线程分辨率较粗的系统上，通过将此参数设置为 0（尽可能快地发送），可以加快传输速度。
             'max_frame_size': 4095,  # Limit the size of receive frame.
             'can_fd': self.checkBox_sendcanfd.isChecked(),  # Does not set the can_fd flag on the output CAN messages
             'bitrate_switch': False,  # Does not set the bitrate_switch flag on the output CAN messages
@@ -828,6 +835,7 @@ write f189:2ef18900112233445577
 #         self.send_state = error
 
 class canFlashThread(QThread):
+    sig_flash_is_stop=pyqtSignal(bool)
     sig_flash_info=pyqtSignal(object)
 
     def __init__(self, conn,dll_path):
@@ -850,6 +858,15 @@ class canFlashThread(QThread):
         self.is_stop=False
     def stop(self):
         self.is_stop=True
+        self.sig_flash_is_stop.emit(True)
+
+    def request_Default_Session(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"请求默认会话\n")
+        req = Request(services.DiagnosticSessionControl, subfunction=1)
+        self.request_and_response(req)
+        time.sleep(0.5)
 
     def request_extended(self):
         if self.is_stop:
@@ -859,11 +876,70 @@ class canFlashThread(QThread):
         self.request_and_response(req)
         time.sleep(0.5)
 
+    def Check_Programming_condition(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"编程前条件预检查\n")
+        req = Request(services.RoutineControl, subfunction=1,data=b'\x02\x03')
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def Disable_DTC_function(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"禁用 DTC功能\n")
+        req = Request(services.ControlDTCSetting, subfunction=2,suppress_positive_response=True)
+        try:
+            self.conn.send_request(req)
+        except:
+            pass
+        time.sleep(0.5)
+    def Enable_DTC_function(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"使能 DTC功能\n")
+        req = Request(services.ControlDTCSetting, subfunction=1,suppress_positive_response=True)
+        try:
+            self.conn.send_request(req)
+        except:
+            pass
+        time.sleep(0.5)
+
+    def Disable_Rx_and_Tx(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"停止通讯报文\n")
+        req = Request(services.CommunicationControl, subfunction=3,suppress_positive_response=True,data=b'\x03')
+        try:
+            self.conn.send_request(req)
+        except:
+            pass
+        time.sleep(0.5)
+
+    def Enable_Rx_and_Tx(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"使能通讯报文\n")
+        req = Request(services.CommunicationControl, subfunction=0,suppress_positive_response=True,data=b'\x03')
+        try:
+            self.conn.send_request(req)
+        except:
+            pass
+        time.sleep(0.5)
+
     def request_programming(self):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"请求编程会话\n")
         req = Request(services.DiagnosticSessionControl, subfunction=2)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def Write_fingerprint_information(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"写入指纹信息\n")
+        req = Request(services.WriteDataByIdentifier, data=b'\xf1\x84\x18\x07\x1d\xff\xff\xff\xff\xff\xff')
         self.request_and_response(req)
         time.sleep(0.5)
 
@@ -880,10 +956,10 @@ class canFlashThread(QThread):
             return
         # 下载参数
         # self.load_hex(self.hex_path)
-        memory_address = self.flash_hex_data[2]["start_address"]
-        memory_size = self.flash_hex_data[2]["size"]
-        self.sig_flash_info.emit(f"请求下载,memory_address:{hex(memory_address)},memory_size:{hex(memory_size)}\n")
-        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size)
+        memory_address = self.flash_hex_data[0]["start_address"]
+        memory_size = self.flash_hex_data[0]["size"]
+        self.sig_flash_info.emit(f"请求下载:{self.hex_path}\nmemory_address:{hex(memory_address)}\nmemory_size:{hex(memory_size)}\n")
+        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size,address_format=32,memorysize_format=32)
         req = RequestDownload.make_request(memory_location=memory_location, dfi=self.dataFormatIdentifier)
         self.request_and_response(req)
         time.sleep(0.5)
@@ -892,7 +968,7 @@ class canFlashThread(QThread):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"开始数据传输\n...\n")
-        self.flash_temp_list = self.chunk_data(self.flash_hex_data[2]['data'], self.maxNumberOfBlockLength - 2)
+        self.flash_temp_list = self.chunk_data(self.flash_hex_data[0]['data'], self.maxNumberOfBlockLength - 2)
         self.blockSequenceCounter = 0
         self.conn.set_config(key='p2_timeout', value=5)
         for block in self.flash_temp_list:
@@ -904,12 +980,25 @@ class canFlashThread(QThread):
         self.sig_flash_info.emit(f"数据传输完成\n")
         time.sleep(0.5)
 
+    def request_TransferExit(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"请求退出传输\n")
+        req = Request(services.RequestTransferExit)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
 
     def Integrity_check(self):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"完整性检查\n")
-        req = Request(services.RoutineControl, subfunction=1,data=b'\x02\x02')
+        # 将整数 16909060 转换为字节串，使用大端序
+        start_address_bytes = (self.flash_hex_data[0]["start_address"]).to_bytes(4, byteorder='big')
+        size_bytes = (self.flash_hex_data[0]["size"]).to_bytes(4, byteorder='big')
+
+        data=b'\x02\x02'+start_address_bytes+size_bytes+self.flash_hex_data[0]['crc32']
+        req = Request(services.RoutineControl, subfunction=1,data=data)
         self.request_and_response(req)
         time.sleep(0.5)
 
@@ -917,7 +1006,19 @@ class canFlashThread(QThread):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"擦除app内存\n")
-        req = Request(services.RoutineControl, subfunction=1, data=b'\xff\x00\x44')
+        start_address_bytes = (self.flash_hex_data[0]["start_address"]).to_bytes(4, byteorder='big')
+        size_bytes = (self.flash_hex_data[0]["size"]).to_bytes(4, byteorder='big')
+
+        data = b'\xff\x00' + start_address_bytes + size_bytes
+        req = Request(services.RoutineControl, subfunction=1, data=data)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def Programmatic_dependency_checking(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"编程依赖性检查\n")
+        req = Request(services.RoutineControl, subfunction=1,data=b'\xff\x01')
         self.request_and_response(req)
         time.sleep(0.5)
 
@@ -938,15 +1039,48 @@ class canFlashThread(QThread):
 
         self.request_extended()
 
+        self.Check_Programming_condition()
+
+        self.Disable_Rx_and_Tx()
+
+        self.Disable_DTC_function()
+
+
+
         self.request_programming()
 
-        self.request_unlock(0x11)
+        self.request_unlock(0x9)
 
+        self.Write_fingerprint_information()
+
+
+        self.load_hex('flash_driver.hex')
         self.request_download()
 
         self.request_TransferData()
 
+        self.request_TransferExit()
+
         self.Integrity_check()
+
+        self.load_hex('VIU_37ZFF_R560RD1_209_20240727_BANK_1.hex')
+        self.Erasememory()
+        self.request_download()
+
+        self.request_TransferData()
+
+        self.request_TransferExit()
+
+        self.Integrity_check()
+        self.Programmatic_dependency_checking()
+
+        if self.is_stop:
+            self.sig_flash_info.emit(f"刷写失败\n")
+            return
+        self.stop()
+        self.sig_flash_info.emit(f"刷写成功\n")
+
+
 
 
 
@@ -978,14 +1112,17 @@ class canFlashThread(QThread):
 
         for start, end in ih.segments():
             # 获取当前块的数据
-            data = ih.tobinstr(start=start, end=end)
-
+            data = ih.tobinstr(start=start, end=end-1)
+            crc32=crcmod.predefined.Crc('crc-32')
+            crc32.update(data)
+            calculated=crc32.digest()
             # 将块信息添加到列表中
             self.flash_hex_data.append({
                 "start_address": start,
-                "end_address": end,
+                "end_address": end-1,
                 "size": end-start,
-                "data": data
+                "data": data,
+                "crc32":calculated
             })
 
 
@@ -1000,6 +1137,13 @@ class canFlashThread(QThread):
                     self.sig_flash_info.emit(f"进入拓展会话成功\n")
                 elif data_raw[1]==0x02:
                     self.sig_flash_info.emit(f"进入编程会话成功\n")
+            if data_raw[0] == 0x71 and data_raw[1] == 0x01:
+                if data_raw[2] == 0x02 and data_raw[3] == 0x03: #编程前条件预检查（31 01 02 03）
+                    self.sig_flash_info.emit(f"编程前条件预检查成功\n")
+                elif data_raw[2] == 0x02 and data_raw[3] == 0x02: # 完整性检查（31 01 02 02）
+                    self.sig_flash_info.emit(f"完整性检查成功\n")
+                elif data_raw[2] == 0xff and data_raw[3] == 0x01: # 编程依赖性检查（31 01 FF 01）
+                    self.sig_flash_info.emit(f"编程依赖性检查成功\n")
 
             if data_raw[0] == 0x74:
 
