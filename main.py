@@ -8,7 +8,7 @@ import crcmod
 
 from PyQt5.QtCore import QThread, QCoreApplication, Qt, pyqtSignal, QRegExp, QStringListModel
 from PyQt5.QtGui import QTextCursor, QRegExpValidator
-from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QAbstractItemView
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QAbstractItemView, QFileDialog
 import can
 from can.interfaces.vector import VectorBus, xldefine, get_channel_configs, VectorBusParams, VectorCanParams, \
     VectorCanFdParams
@@ -24,18 +24,22 @@ from udsoncan.client import Client
 import udsoncan.configs
 import configparser
 
+
 class MainWindows(QMainWindow, Ui_MainWindow):
     sig_dll_path = pyqtSignal(object)
+
     def __init__(self):
         super().__init__()
         self.setupUi(self)
         self.vectorConfigs = []
-        self.dll_path=None
+        self.dll_path = None
         self.channel_choose = 0
         self.appName = 'UDS Client'
         self.vectorChannelCanParams = None
         self.is_run = False
 
+        self.flash_drive_path = 'flash_drive.hex'
+        self.flash_app_path = None
 
         self.refresh_ui()
         self.init()
@@ -137,25 +141,23 @@ write f189:2ef18900112233445577
         ecu_data = {}
         for ecu_name in config.sections():
             if ":" not in ecu_name:  # 只处理 ECU 名称，不处理子项
-                AddressingMode=None
+                AddressingMode = None
                 try:
-                    AddressingMode=int(config[ecu_name]["AddressingMode"])
+                    AddressingMode = int(config[ecu_name]["AddressingMode"])
                 except:
-                    AddressingMode=0
+                    AddressingMode = 0
                 try:
-                    uds_on_can_request_id=config[ecu_name]["uds_on_can_request_id"]
+                    uds_on_can_request_id = config[ecu_name]["uds_on_can_request_id"]
                 except:
-                    uds_on_can_request_id=0x701
+                    uds_on_can_request_id = 0x701
                 try:
-                    uds_on_can_response_id=config[ecu_name]["uds_on_can_response_id"]
+                    uds_on_can_response_id = config[ecu_name]["uds_on_can_response_id"]
                 except:
-                    uds_on_can_response_id=0x702
+                    uds_on_can_response_id = 0x702
                 try:
-                    uds_on_can_function_id=config[ecu_name]["uds_on_can_function_id"]
+                    uds_on_can_function_id = config[ecu_name]["uds_on_can_function_id"]
                 except:
-                    uds_on_can_function_id=0x7df
-
-
+                    uds_on_can_function_id = 0x7df
 
                 ecu_data[ecu_name] = {}
                 # 读取 ECU 基本信息
@@ -166,9 +168,9 @@ write f189:2ef18900112233445577
 
                 # 读取 dll 信息
                 try:
-                    dll=config[f"{ecu_name}:dll"]["dll"]
+                    dll = config[f"{ecu_name}:dll"]["dll"]
                 except:
-                    dll=None
+                    dll = None
                 ecu_data[ecu_name]["dll"] = dll
 
                 # 读取 ReadDataByIdentifier 信息
@@ -186,16 +188,15 @@ write f189:2ef18900112233445577
                 except:
                     pass
 
-
         return ecu_data
 
     def set_ecu_diag_id(self):
-        ecu_name=self.comboBox_eculist.currentText()
+        ecu_name = self.comboBox_eculist.currentText()
         self.lineEdit_requestid.setText(self.ecus[ecu_name]['uds_on_can_request_id'])
         self.lineEdit_responseid.setText(self.ecus[ecu_name]['uds_on_can_response_id'])
         self.lineEdit_functionid.setText(self.ecus[ecu_name]['uds_on_can_function_id'])
         self.set_did_list()
-        self.dll_path=self.ecus[ecu_name]['dll']
+        self.dll_path = self.ecus[ecu_name]['dll']
         self.sig_dll_path.emit(self.ecus[ecu_name]['dll'])
 
     def set_did_list(self):
@@ -214,7 +215,7 @@ write f189:2ef18900112233445577
     def init(self):
 
         try:
-            self.ecus=self.read_ecu_config()
+            self.ecus = self.read_ecu_config()
             self.comboBox_eculist.clear()
             for ecu in self.ecus.keys():
                 self.comboBox_eculist.addItem(ecu)
@@ -226,11 +227,9 @@ write f189:2ef18900112233445577
 
         except:
             self.comboBox_eculist.setDisabled(True)
-            self.ecus=None
+            self.ecus = None
 
         self.send_queue = queue.Queue()
-        self.rec_queue = queue.Queue()
-
 
         # self.dll_lib=ctypes.WinDLL("./SeednKey.dll")
 
@@ -240,13 +239,13 @@ write f189:2ef18900112233445577
         regVal.setRegExp(reg)
         self.lineEdit_send.setValidator(regVal)
 
-
         self.pushButton_start.clicked.connect(self.run_bus)
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
         self.pushButton_send.clicked.connect(self.send_uds)
 
         self.listView_dids.doubleClicked.connect(self.send_uds_listView_dids)
-
+        self.toolButton_loadapp.clicked.connect(self.openAPP)
+        self.toolButton_loaddrive.clicked.connect(self.openDrive)
         # 屏蔽双击编辑
         self.listView_dids.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
@@ -255,24 +254,107 @@ write f189:2ef18900112233445577
         # self.checkBox_3E.clicked.connect(self.send_checkBox_3e_signal)
         self.pushButton_flash.clicked.connect(self.start_flash)
 
+        self.groupBox_app.setAcceptDrops(True)
+        self.groupBox_app.dragEnterEvent = self.dragEnterEvent
+        self.groupBox_app.dragMoveEvent = self.dragMoveEvent
+        self.groupBox_app.dropEvent = self.dropEvent_app
+
+        self.lineEdit_drivepath.setText(self.flash_drive_path)
+        self.groupBox_drive.setAcceptDrops(True)
+        self.groupBox_drive.dragEnterEvent = self.dragEnterEvent
+        self.groupBox_drive.dragMoveEvent = self.dragMoveEvent
+        self.groupBox_drive.dropEvent = self.dropEvent_drive
+
         self.set_canParams()
 
         # self.dll_lib=ctypes.WinDLL("./GenerateKeyExImpl.dll")
 
     # def send_checkBox_3e_signal(self):
     #     self.
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent_app(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            urls = event.mimeData().urls()
+            file_path = urls[0].toLocalFile()
+            self.lineEdit_apppath.setText(file_path)
+            self.flash_app_path = file_path
+        else:
+            event.ignore()
+
+    def dropEvent_drive(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            urls = event.mimeData().urls()
+            file_path = urls[0].toLocalFile()
+            self.lineEdit_drivepath.setText(file_path)
+            self.flash_drive_path = file_path
+        else:
+            event.ignore()
+
+    def openAPP(self):
+        filePath, _ = QFileDialog.getOpenFileName(self, "选择APP文件", "", "所有文件 (*)")
+        if filePath:
+            self.lineEdit_apppath.setText(filePath)
+            self.flash_app_path = filePath
+
+    def openDrive(self):
+        filePath, _ = QFileDialog.getOpenFileName(self, "选择Drive文件", "", "所有文件 (*)")
+        if filePath:
+            self.lineEdit_drivepath.setText(filePath)
+            self.flash_drive_path = filePath
+
     def start_flash(self):
-        self.flash_thread=canFlashThread(conn=self.uds_client, dll_path=self.dll_path)
+
+        if self.flash_drive_path is None:
+            self.print_flash_info('请选择drive文件')
+            return
+        if self.flash_app_path is None:
+            self.print_flash_info('请选择app文件')
+            return
+
+        if not os.path.exists(self.flash_app_path):
+            self.print_flash_info(f'{self.flash_app_path} 不存在')
+            return
+        if not os.path.exists(self.flash_drive_path):
+            self.print_flash_info(f'{self.flash_drive_path} 不存在')
+            return
+
+        self.flash_thread = canFlashThread(conn=self.uds_client, dll_path=self.dll_path,
+                                           flash_drive_path=self.flash_drive_path,
+                                           flash_app_path=self.flash_app_path)
 
         self.pushButton_flash.setDisabled(True)
+        self.groupBox_app.setDisabled(True)
+        self.groupBox_drive.setDisabled(True)
         self.flash_thread.sig_flash_info.connect(self.print_flash_info)
         self.flash_thread.sig_flash_is_stop.connect(self.update_flash_pushButton)
+        self.flash_thread.sig_flash_progress.connect(self.flash_progress_ui)
         self.flash_thread.start()
-    def update_flash_pushButton(self,flash_is_stop):
+
+    def flash_progress_ui(self, progress):
+        self.progressBar.setValue(progress)
+
+    def update_flash_pushButton(self, flash_is_stop):
         if flash_is_stop:
             self.pushButton_flash.setDisabled(False)
+            self.groupBox_app.setDisabled(False)
+            self.groupBox_drive.setDisabled(False)
+
     def popup_about(self):
         QMessageBox.information(None, "About", "Version:V1.2\nAuthor:Zhichen Wang\nDate:2024.7.24")
+
     def refresh_ui(self):
         self.refresh_drive()
         self.update_channel_lists_ui()
@@ -287,12 +369,12 @@ write f189:2ef18900112233445577
             # print(channel_list.channel_bus_capabilities)
             # print(xldefine.XL_BusCapabilities.XL_BUS_ACTIVE_CAP_CAN.value)
             # print(xldefine.XL_BusCapabilities.XL_BUS_COMPATIBLE_CAN.value)
-            if(channel_list.channel_bus_capabilities & xldefine.XL_BusCapabilities.XL_BUS_ACTIVE_CAP_CAN):
+            if (channel_list.channel_bus_capabilities & xldefine.XL_BusCapabilities.XL_BUS_ACTIVE_CAP_CAN):
                 self.vectorConfigs.append({
                     'name': channel_list.name,
                     'transceiver_name': channel_list.transceiver_name,
                     'channel_index': channel_list.channel_index,
-                    'hw_type':channel_list.hw_type,
+                    'hw_type': channel_list.hw_type,
                     'hw_index': channel_list.hw_index,
                     'hw_channel': channel_list.hw_channel,
                     'serial_number': channel_list.serial_number,
@@ -302,6 +384,7 @@ write f189:2ef18900112233445577
                     'can_op_mode': channel_list.bus_params.can.can_op_mode
                 })
                 # print(channel_list.channel_index)
+
     def update_channel_lists_ui(self):
         self.comboBox_channel.clear()
         for channel in self.vectorConfigs:
@@ -449,9 +532,9 @@ write f189:2ef18900112233445577
         # tp_addr = isotp.Address(isotp.AddressingMode.Normal_29bits, txid=txid, rxid=rxid,
         #                         functional_id=functionalid)
         if self.checkBox_sendcanfd.isChecked():
-            tx_data_length=64
+            tx_data_length = 64
         else:
-            tx_data_length=8
+            tx_data_length = 8
         isotpparams = {
             'blocking_send': False,
             'stmin': 32,
@@ -501,7 +584,7 @@ write f189:2ef18900112233445577
         # stack.stop()
 
         config = dict(udsoncan.configs.default_client_config)
-        config['p2_timeout']=1.5
+        config['p2_timeout'] = 1.5
 
         # config['data_identifiers'] = {
         #     'default': '>H',  # Default codec is a struct.pack/unpack string. 16bits little endian
@@ -509,7 +592,7 @@ write f189:2ef18900112233445577
         #     0xf110:MyCodec()
         # }
 
-        self.uds_client=Client(self.conn, config=config)
+        self.uds_client = Client(self.conn, config=config)
         self.uds_client.open()
         # try:
         #     response = self.uds_client.test_data_identifier([0xF195])
@@ -533,8 +616,6 @@ write f189:2ef18900112233445577
         # except:
         #     print('error')
 
-
-
         # with Client(conn, request_timeout=2, config=config) as client:
         #     response = client.read_data_by_identifier([0xF190])
         #     print(response.service_data.values[0xF190])  # This is a dict of DID:Value
@@ -542,13 +623,9 @@ write f189:2ef18900112233445577
         #     # Or, if a single DID is expected, a shortcut to read the value of the first DID
         #     vin = client.read_data_by_identifier_first(0xF190)
 
-
-
-
-
-
-        self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue,dll_path=self.dll_path,ecus=self.ecus)
-        self.canTesterPresentThread=canTesterPresentThread(conn=self.uds_client)
+        self.canudsthread = canUDSClientThread(conn=self.uds_client, send_queue=self.send_queue, dll_path=self.dll_path,
+                                               ecus=self.ecus)
+        self.canTesterPresentThread = canTesterPresentThread(conn=self.uds_client)
         # self.conn.open()
 
         self.canudsthread.send_data.connect(self.print_tx)
@@ -586,7 +663,8 @@ write f189:2ef18900112233445577
         if self.is_run:
             ecu_name = self.comboBox_eculist.currentText()
             self.canudsthread.sig_ecu_name.emit(ecu_name)
-    def update_3e_ui(self,flag):
+
+    def update_3e_ui(self, flag):
         if flag:
             self.checkBox_3E.setChecked(True)
         else:
@@ -671,18 +749,17 @@ write f189:2ef18900112233445577
             print('DiagnosticSessionControl')
             req = Request(services.DiagnosticSessionControl, subfunction=uds_bytes[1])
 
-
             return req
         elif uds_bytes[0] == 0x11:
             req = Request(services.ECUReset, subfunction=uds_bytes[1])
             return req
         elif uds_bytes[0] == 0x27:
             print('SecurityAccess')
-            if uds_bytes[1]%2 ==1:
+            if uds_bytes[1] % 2 == 1:
                 req = Request(services.SecurityAccess, subfunction=uds_bytes[1], data=uds_bytes[2:])
                 return req
             else:
-                self.textEdit_trace.insertPlainText('Send Security Level Erroe:'+uds_bytes.hex(' ') + '\r')
+                self.textEdit_trace.insertPlainText('Send Security Level Erroe:' + uds_bytes.hex(' ') + '\r')
                 self.textEdit_trace.moveCursor(QTextCursor.End)
                 # self.rec_data.emit('Send Security Level Erroe' + '\r')
 
@@ -760,7 +837,7 @@ write f189:2ef18900112233445577
             except ValueError as e:
                 print(e)
 
-    def send_uds_listView_dids(self,index):
+    def send_uds_listView_dids(self, index):
         # 队列过多时不响应发送请求
         if self.send_queue.qsize() <= 3:
             ecu_name = self.comboBox_eculist.currentText()
@@ -835,29 +912,33 @@ write f189:2ef18900112233445577
 #         self.send_state = error
 
 class canFlashThread(QThread):
-    sig_flash_is_stop=pyqtSignal(bool)
-    sig_flash_info=pyqtSignal(object)
+    sig_flash_is_stop = pyqtSignal(bool)
+    sig_flash_info = pyqtSignal(object)
+    sig_flash_progress = pyqtSignal(object)
 
-    def __init__(self, conn,dll_path):
+    def __init__(self, conn, dll_path, flash_drive_path, flash_app_path):
         super().__init__()
         self.conn = conn
         self.daemon = True  # 设置为守护进程
         self.send_state = 'Normal'
         self.dll_path = dll_path
         self.dll_lib = None
-        self.flash_hex_data=[]
-        self.flash_temp_list=[]
-        self.hex_path='LED_Blink.hex'
+        self.flash_hex_data = []
+        self.flash_temp_list = []
+
+        self.flash_drive_path = flash_drive_path
+        self.flash_app_path = flash_app_path
 
         self.dataFormatIdentifier = DataFormatIdentifier(compression=0x0, encryption=0x0)  # 不使用压缩，不加密
-        self.lengthFormatIdentifier=None
-        self.lengthFormatIdentifier=0
-        self.maxNumberOfBlockLength=0
-        self.blockSequenceCounter=0
+        self.lengthFormatIdentifier = None
+        self.lengthFormatIdentifier = 0
+        self.maxNumberOfBlockLength = 0
+        self.blockSequenceCounter = 0
 
-        self.is_stop=False
+        self.is_stop = False
+
     def stop(self):
-        self.is_stop=True
+        self.is_stop = True
         self.sig_flash_is_stop.emit(True)
 
     def request_Default_Session(self):
@@ -880,7 +961,7 @@ class canFlashThread(QThread):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"编程前条件预检查\n")
-        req = Request(services.RoutineControl, subfunction=1,data=b'\x02\x03')
+        req = Request(services.RoutineControl, subfunction=1, data=b'\x02\x03')
         self.request_and_response(req)
         time.sleep(0.5)
 
@@ -888,17 +969,18 @@ class canFlashThread(QThread):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"禁用 DTC功能\n")
-        req = Request(services.ControlDTCSetting, subfunction=2,suppress_positive_response=True)
+        req = Request(services.ControlDTCSetting, subfunction=2, suppress_positive_response=True)
         try:
             self.conn.send_request(req)
         except:
             pass
         time.sleep(0.5)
+
     def Enable_DTC_function(self):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"使能 DTC功能\n")
-        req = Request(services.ControlDTCSetting, subfunction=1,suppress_positive_response=True)
+        req = Request(services.ControlDTCSetting, subfunction=1, suppress_positive_response=True)
         try:
             self.conn.send_request(req)
         except:
@@ -909,7 +991,7 @@ class canFlashThread(QThread):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"停止通讯报文\n")
-        req = Request(services.CommunicationControl, subfunction=3,suppress_positive_response=True,data=b'\x03')
+        req = Request(services.CommunicationControl, subfunction=3, suppress_positive_response=True, data=b'\x03')
         try:
             self.conn.send_request(req)
         except:
@@ -920,7 +1002,7 @@ class canFlashThread(QThread):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"使能通讯报文\n")
-        req = Request(services.CommunicationControl, subfunction=0,suppress_positive_response=True,data=b'\x03')
+        req = Request(services.CommunicationControl, subfunction=0, suppress_positive_response=True, data=b'\x03')
         try:
             self.conn.send_request(req)
         except:
@@ -943,7 +1025,7 @@ class canFlashThread(QThread):
         self.request_and_response(req)
         time.sleep(0.5)
 
-    def request_unlock(self,level):
+    def request_unlock(self, level):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"开始level {level}解锁\n")
@@ -958,13 +1040,15 @@ class canFlashThread(QThread):
         # self.load_hex(self.hex_path)
         memory_address = self.flash_hex_data[0]["start_address"]
         memory_size = self.flash_hex_data[0]["size"]
-        self.sig_flash_info.emit(f"请求下载:{self.hex_path}\nmemory_address:{hex(memory_address)}\nmemory_size:{hex(memory_size)}\n")
-        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size,address_format=32,memorysize_format=32)
+        self.sig_flash_info.emit(
+            f"请求下载:{self.hex_path}\nmemory_address:{hex(memory_address)}\nmemory_size:{hex(memory_size)}\n")
+        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size, address_format=32,
+                                         memorysize_format=32)
         req = RequestDownload.make_request(memory_location=memory_location, dfi=self.dataFormatIdentifier)
         self.request_and_response(req)
         time.sleep(0.5)
 
-    def request_TransferData(self):
+    def TransferData_drive(self):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"开始数据传输\n...\n")
@@ -980,6 +1064,35 @@ class canFlashThread(QThread):
         self.sig_flash_info.emit(f"数据传输完成\n")
         time.sleep(0.5)
 
+    def TransferData_app(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"开始数据传输\n...\n")
+        self.flash_temp_list = self.chunk_data(self.flash_hex_data[0]['data'], self.maxNumberOfBlockLength - 2)
+        self.blockSequenceCounter = 0
+        self.conn.set_config(key='p2_timeout', value=5)
+        block_num = len(self.flash_temp_list)
+
+        temp = 10
+        count = 0
+        progress = 10
+
+        for block in self.flash_temp_list:
+            self.blockSequenceCounter = (self.blockSequenceCounter + 1) & 0xff
+            req = TransferData.make_request(self.blockSequenceCounter, block)
+            self.request_and_response(req)
+            count = count + 1
+            progress = (count / block_num) * 0.8 + progress
+
+            if (progress - temp) >= 2:
+                self.sig_flash_progress.emit(int(progress))
+                temp = progress
+
+        self.conn.set_config(key='p2_timeout', value=1.5)
+        self.blockSequenceCounter = 0
+        self.sig_flash_info.emit(f"数据传输完成\n")
+        time.sleep(0.5)
+
     def request_TransferExit(self):
         if self.is_stop:
             return
@@ -987,7 +1100,6 @@ class canFlashThread(QThread):
         req = Request(services.RequestTransferExit)
         self.request_and_response(req)
         time.sleep(0.5)
-
 
     def Integrity_check(self):
         if self.is_stop:
@@ -997,8 +1109,8 @@ class canFlashThread(QThread):
         start_address_bytes = (self.flash_hex_data[0]["start_address"]).to_bytes(4, byteorder='big')
         size_bytes = (self.flash_hex_data[0]["size"]).to_bytes(4, byteorder='big')
 
-        data=b'\x02\x02'+start_address_bytes+size_bytes+self.flash_hex_data[0]['crc32']
-        req = Request(services.RoutineControl, subfunction=1,data=data)
+        data = b'\x02\x02' + start_address_bytes + size_bytes + self.flash_hex_data[0]['crc32']
+        req = Request(services.RoutineControl, subfunction=1, data=data)
         self.request_and_response(req)
         time.sleep(0.5)
 
@@ -1018,74 +1130,61 @@ class canFlashThread(QThread):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"编程依赖性检查\n")
-        req = Request(services.RoutineControl, subfunction=1,data=b'\xff\x01')
+        req = Request(services.RoutineControl, subfunction=1, data=b'\xff\x01')
         self.request_and_response(req)
         time.sleep(0.5)
-
-
-
-
-
-
-
-
-
-
-
-
 
     def run(self):
         self.load_dll(self.dll_path)
 
+        self.sig_flash_progress.emit(0)
         self.request_extended()
 
         self.Check_Programming_condition()
-
+        self.sig_flash_progress.emit(0)
         self.Disable_Rx_and_Tx()
 
         self.Disable_DTC_function()
 
-
-
         self.request_programming()
-
+        self.sig_flash_progress.emit(2)
         self.request_unlock(0x9)
-
+        self.sig_flash_progress.emit(3)
         self.Write_fingerprint_information()
+        self.sig_flash_progress.emit(5)
 
-
-        self.load_hex('flash_driver.hex')
+        self.load_hex(self.flash_drive_path)
         self.request_download()
 
-        self.request_TransferData()
-
+        self.TransferData_drive()
+        self.sig_flash_progress.emit(6)
         self.request_TransferExit()
-
+        self.sig_flash_progress.emit(7)
         self.Integrity_check()
 
-        self.load_hex('VIU_37ZFF_R560RD1_209_20240727_BANK_1.hex')
+        self.load_hex(self.flash_app_path)
         self.Erasememory()
+        self.sig_flash_progress.emit(8)
         self.request_download()
 
-        self.request_TransferData()
+        # 固定传输app时进度为10
+        self.sig_flash_progress.emit(10)
+
+        self.TransferData_app()
 
         self.request_TransferExit()
 
         self.Integrity_check()
         self.Programmatic_dependency_checking()
-
+        # 固定传输app完成进度为90
+        self.sig_flash_progress.emit(90)
         if self.is_stop:
             self.sig_flash_info.emit(f"刷写失败\n")
             return
         self.stop()
         self.sig_flash_info.emit(f"刷写成功\n")
 
-
-
-
-
-
-    def chunk_data(self,data, NumberOfBlockLength):
+    def chunk_data(self, data, NumberOfBlockLength):
         """将数据分割成指定大小的块。
 
         Args:
@@ -1103,8 +1202,7 @@ class canFlashThread(QThread):
             start += NumberOfBlockLength
         return data_chunks
 
-
-    def load_hex(self,path):
+    def load_hex(self, path):
         ih = IntelHex()
         ih.loadhex(path)
 
@@ -1112,52 +1210,51 @@ class canFlashThread(QThread):
 
         for start, end in ih.segments():
             # 获取当前块的数据
-            data = ih.tobinstr(start=start, end=end-1)
-            crc32=crcmod.predefined.Crc('crc-32')
+            data = ih.tobinstr(start=start, end=end - 1)
+            crc32 = crcmod.predefined.Crc('crc-32')
             crc32.update(data)
-            calculated=crc32.digest()
+            calculated = crc32.digest()
             # 将块信息添加到列表中
             self.flash_hex_data.append({
                 "start_address": start,
-                "end_address": end-1,
-                "size": end-start,
+                "end_address": end - 1,
+                "size": end - start,
                 "data": data,
-                "crc32":calculated
+                "crc32": calculated
             })
 
-
-    def request_and_response(self,req):
+    def request_and_response(self, req):
         try:
             response = self.conn.send_request(req)
 
             data_raw = response.original_payload
 
             if data_raw[0] == 0x50:
-                if data_raw[1]==0x03:
+                if data_raw[1] == 0x03:
                     self.sig_flash_info.emit(f"进入拓展会话成功\n")
-                elif data_raw[1]==0x02:
+                elif data_raw[1] == 0x02:
                     self.sig_flash_info.emit(f"进入编程会话成功\n")
             if data_raw[0] == 0x71 and data_raw[1] == 0x01:
-                if data_raw[2] == 0x02 and data_raw[3] == 0x03: #编程前条件预检查（31 01 02 03）
+                if data_raw[2] == 0x02 and data_raw[3] == 0x03:  # 编程前条件预检查（31 01 02 03）
                     self.sig_flash_info.emit(f"编程前条件预检查成功\n")
-                elif data_raw[2] == 0x02 and data_raw[3] == 0x02: # 完整性检查（31 01 02 02）
+                elif data_raw[2] == 0x02 and data_raw[3] == 0x02:  # 完整性检查（31 01 02 02）
                     self.sig_flash_info.emit(f"完整性检查成功\n")
-                elif data_raw[2] == 0xff and data_raw[3] == 0x01: # 编程依赖性检查（31 01 FF 01）
+                elif data_raw[2] == 0xff and data_raw[3] == 0x01:  # 编程依赖性检查（31 01 FF 01）
                     self.sig_flash_info.emit(f"编程依赖性检查成功\n")
 
             if data_raw[0] == 0x74:
 
-                self.lengthFormatIdentifier=data_raw[1] >> 4
-                if len(data_raw) < self.lengthFormatIdentifier+2:
+                self.lengthFormatIdentifier = data_raw[1] >> 4
+                if len(data_raw) < self.lengthFormatIdentifier + 2:
                     self.sig_flash_info.emit(f"下载请求回复异常，data:{data_raw.hex(' ')}\n")
                     self.stop()
                     return
-                max_block_length_bytes = data_raw[2:2+self.lengthFormatIdentifier]
-                self.maxNumberOfBlockLength=int.from_bytes(max_block_length_bytes, byteorder='big')
+                max_block_length_bytes = data_raw[2:2 + self.lengthFormatIdentifier]
+                self.maxNumberOfBlockLength = int.from_bytes(max_block_length_bytes, byteorder='big')
                 self.sig_flash_info.emit(f"下载请求成功，maxNumberOfBlockLength:{self.maxNumberOfBlockLength}\n")
 
             if data_raw[0] == 0x76:
-                exp_Sequence=req.get_payload()[1]
+                exp_Sequence = req.get_payload()[1]
                 if data_raw[1] == exp_Sequence:
                     pass
                 else:
@@ -1293,17 +1390,15 @@ class canFlashThread(QThread):
         except Exception as e:
             self.sig_flash_info.emit(str(e) + '\r')
             self.stop()
-    def load_dll(self,dll_path):
-        try:
-            self.dll_lib=ctypes.WinDLL(dll_path)
-        except:
-            self.dll_lib=None
 
+    def load_dll(self, dll_path):
+        try:
+            self.dll_lib = ctypes.WinDLL(dll_path)
+        except:
+            self.dll_lib = None
 
     def set_send_state(self, error):
         self.send_state = error
-
-
 
 
 # 发送保持会话线程
@@ -1313,12 +1408,12 @@ class canTesterPresentThread(QThread):
         super().__init__()
         self.conn = conn
         self.daemon = True  # 设置为守护进程
-        self.flag_3e=False
-        self.flag_stop=False
+        self.flag_3e = False
+        self.flag_stop = False
 
     def run(self):
-        req = Request(services.TesterPresent, subfunction=0,suppress_positive_response=True)
-        while True :
+        req = Request(services.TesterPresent, subfunction=0, suppress_positive_response=True)
+        while True:
             time.sleep(3)
             if self.flag_stop:
                 break
@@ -1331,11 +1426,11 @@ class canTesterPresentThread(QThread):
             else:
                 pass
 
-
-    def set_3e_flag(self,flag):
+    def set_3e_flag(self, flag):
         self.flag_3e = flag
+
     def stop_thread(self):
-        self.flag_stop=True
+        self.flag_stop = True
 
 
 # 发送自定义报文线程，如唤醒报文
@@ -1343,27 +1438,27 @@ class cansendmessageThread(QThread):
     def __init__(self, conn, send_queue):
         super().__init__()
 
+
 class canUDSClientThread(QThread):
     send_data = pyqtSignal(object)
     rec_data = pyqtSignal(object)
     sig_send_state = pyqtSignal(object)
     sig_flag_3e = pyqtSignal(object)
-    sig_ecu_name=pyqtSignal(object)
+    sig_ecu_name = pyqtSignal(object)
 
-    def __init__(self, conn, send_queue,dll_path,ecus):
+    def __init__(self, conn, send_queue, dll_path, ecus):
         super().__init__()
         self.daemon = True  # 设置为守护进程
         self.conn = conn
-        self.ecus=ecus
+        self.ecus = ecus
         self.send_queue = send_queue
         self.stop_flag = 0;
         self.send_state = 'Normal'
-        self.dll_path=dll_path
+        self.dll_path = dll_path
         self.dll_lib = None
-        self.generated_key =None
-        self.is_ascii=False
-        self.ecu_name=None
-
+        self.generated_key = None
+        self.is_ascii = False
+        self.ecu_name = None
 
     def run(self):
         self.load_dll(self.dll_path)
@@ -1379,12 +1474,12 @@ class canUDSClientThread(QThread):
                 try:
                     response = self.conn.send_request(req)
                     data_raw = response.original_payload
-                    if data_raw[0]==0x62:# ReadDataByIdentifier
-                        did=hex(data_raw[1]*0x100+data_raw[2])
+                    if data_raw[0] == 0x62:  # ReadDataByIdentifier
+                        did = hex(data_raw[1] * 0x100 + data_raw[2])
                         try:
-                            isascii=self.ecus[self.ecu_name]['ReadDataByIdentifier'][did]
-                            if isascii=='ascii':
-                                self.is_ascii=True
+                            isascii = self.ecus[self.ecu_name]['ReadDataByIdentifier'][did]
+                            if isascii == 'ascii':
+                                self.is_ascii = True
                             else:
                                 self.is_ascii = False
 
@@ -1393,24 +1488,16 @@ class canUDSClientThread(QThread):
 
                     if self.is_ascii:
                         self.rec_data.emit(f"Positive: {data_raw[3:].decode('ascii')}\r")
-                        self.is_ascii=False
+                        self.is_ascii = False
                     else:
                         self.rec_data.emit(f"Positive: {data_raw.hex(' ')}\r")
 
-                    if data_raw[0]==0x50 and data_raw[1]>1:
+                    if data_raw[0] == 0x50 and data_raw[1] > 1:
                         self.sig_flag_3e.emit(True)
-                    elif data_raw[0]==0x50 and data_raw[1]==1:
+                    elif data_raw[0] == 0x50 and data_raw[1] == 1:
                         self.sig_flag_3e.emit(False)
 
-
-
-
-
-
-
-
-
-                    if data_raw[0]==0x67 and data_raw[1]==req.get_payload()[1]:
+                    if data_raw[0] == 0x67 and data_raw[1] == req.get_payload()[1]:
                         # 当前python是64位，解锁dll是32位，无法直接调用，考虑做一个64位dll调用32位dll
                         # 此处回复key是固定值，待实现调用dll后再完成发送key的功能
 
@@ -1427,7 +1514,6 @@ class canUDSClientThread(QThread):
                         key_array = (ctypes.c_ubyte * max_key_size)()
                         actual_key_size = ctypes.c_uint()
 
-
                         # 定义函数的返回类型和参数类型
                         try:
                             self.dll_lib.GenerateKeyEx.restype = ctypes.c_int
@@ -1440,7 +1526,6 @@ class canUDSClientThread(QThread):
                                 ctypes.c_uint,  # iMaxKeyArraySize
                                 ctypes.POINTER(ctypes.c_uint)  # oActualKeyArraySize
                             ]
-
 
                             # 调用DLL函数
                             result = self.dll_lib.GenerateKeyEx(
@@ -1457,16 +1542,15 @@ class canUDSClientThread(QThread):
                             if result == 0:
                                 self.generated_key = bytearray(key_array)[:actual_key_size.value]
                             else:
-                                self.generated_key=None
+                                self.generated_key = None
 
                         except AttributeError as e:
-                            self.generated_key=None
+                            self.generated_key = None
 
                         except Exception as e:
                             self.generated_key = None
 
-
-                        if self.generated_key==None:
+                        if self.generated_key == None:
                             try:
                                 self.dll_lib.GenerateKeyExOpt.restype = ctypes.c_int
                                 self.dll_lib.GenerateKeyExOpt.argtypes = [
@@ -1479,7 +1563,6 @@ class canUDSClientThread(QThread):
                                     ctypes.c_uint,  # iMaxKeyArraySize
                                     ctypes.POINTER(ctypes.c_uint)  # oActualKeyArraySize
                                 ]
-
 
                                 # 调用DLL函数
                                 result = self.dll_lib.GenerateKeyExOpt(
@@ -1505,13 +1588,11 @@ class canUDSClientThread(QThread):
                             except Exception as e:
                                 self.generated_key = None
 
-
-
-
                         if self.generated_key == None:
                             self.generated_key = bytes([0x00] * (length - 2))
 
-                        req1 = Request(services.SecurityAccess, subfunction=data_raw[1]+1, data=bytes(self.generated_key))
+                        req1 = Request(services.SecurityAccess, subfunction=data_raw[1] + 1,
+                                       data=bytes(self.generated_key))
                         self.send_data.emit(req1.get_payload())
                         response = self.conn.send_request(req1)
                         data_raw = response.original_payload
@@ -1549,19 +1630,21 @@ class canUDSClientThread(QThread):
                 # 处理队列为空的情况，例如打印日志或进行其他操作
                 pass
 
-    def load_dll(self,dll_path):
+    def load_dll(self, dll_path):
         try:
-            self.dll_lib=ctypes.WinDLL(dll_path)
+            self.dll_lib = ctypes.WinDLL(dll_path)
         except:
-            self.dll_lib=None
+            self.dll_lib = None
 
     def stop_thread(self):
         self.stop_flag = 1
 
     def set_send_state(self, error):
         self.send_state = error
-    def set_ecu_name(self,ecu_name):
-        self.ecu_name=ecu_name
+
+    def set_ecu_name(self, ecu_name):
+        self.ecu_name = ecu_name
+
 
 class MyCodec(DidCodec):
     def encode(self, val):
@@ -1580,8 +1663,6 @@ if __name__ == "__main__":
     w = MainWindows()
     w.show()
     sys.exit(app.exec_())
-
-
 
 # Nuitka
 # 打包 Python 项目为可执行文件
