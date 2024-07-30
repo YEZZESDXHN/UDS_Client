@@ -353,7 +353,7 @@ write f189:2ef18900112233445577
             self.groupBox_drive.setDisabled(False)
 
     def popup_about(self):
-        QMessageBox.information(None, "About", "Version:V1.2\nAuthor:Zhichen Wang\nDate:2024.7.24")
+        QMessageBox.information(None, "About", "Version:V1.3\nAuthor:Zhichen Wang\nDate:2024.7.24")
 
     def refresh_ui(self):
         self.refresh_drive()
