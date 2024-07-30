@@ -38,7 +38,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
         self.vectorChannelCanParams = None
         self.is_run = False
 
-        self.flash_drive_path = 'flash_drive.hex'
+        self.flash_drive_path = 'flash_driver.hex'
         self.flash_app_path = None
 
         self.refresh_ui()
@@ -1033,7 +1033,7 @@ class canFlashThread(QThread):
         self.request_and_response(req)
         time.sleep(0.5)
 
-    def request_download(self):
+    def request_download(self,path):
         if self.is_stop:
             return
         # 下载参数
@@ -1041,7 +1041,7 @@ class canFlashThread(QThread):
         memory_address = self.flash_hex_data[0]["start_address"]
         memory_size = self.flash_hex_data[0]["size"]
         self.sig_flash_info.emit(
-            f"请求下载:{self.hex_path}\nmemory_address:{hex(memory_address)}\nmemory_size:{hex(memory_size)}\n")
+            f"请求下载:{path}\nmemory_address:{hex(memory_address)}\nmemory_size:{hex(memory_size)}\n")
         memory_location = MemoryLocation(address=memory_address, memorysize=memory_size, address_format=32,
                                          memorysize_format=32)
         req = RequestDownload.make_request(memory_location=memory_location, dfi=self.dataFormatIdentifier)
@@ -1154,7 +1154,7 @@ class canFlashThread(QThread):
         self.sig_flash_progress.emit(5)
 
         self.load_hex(self.flash_drive_path)
-        self.request_download()
+        self.request_download(self.flash_drive_path)
 
         self.TransferData_drive()
         self.sig_flash_progress.emit(6)
@@ -1165,7 +1165,7 @@ class canFlashThread(QThread):
         self.load_hex(self.flash_app_path)
         self.Erasememory()
         self.sig_flash_progress.emit(8)
-        self.request_download()
+        self.request_download(self.flash_app_path)
 
         # 固定传输app时进度为10
         self.sig_flash_progress.emit(10)
