@@ -1189,6 +1189,7 @@ class canFlashThread(QThread):
             return
         self.sig_flash_info.emit(f"刷写成功\n")
         self.send_flash_progress(100)
+        self.stop()
 
     def chunk_data(self, data, NumberOfBlockLength):
         """将数据分割成指定大小的块。
