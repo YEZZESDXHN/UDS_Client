@@ -1075,17 +1075,17 @@ class canFlashThread(QThread):
 
         temp = 10
         count = 0
-        progress = 10
+        progress_start = 10
 
         for block in self.flash_temp_list:
             self.blockSequenceCounter = (self.blockSequenceCounter + 1) & 0xff
             req = TransferData.make_request(self.blockSequenceCounter, block)
             self.request_and_response(req)
             count = count + 1
-            progress = (count / block_num) * 0.8 + progress
+            progress = (count / block_num) * 80
 
-            if (progress - temp) >= 2:
-                self.sig_flash_progress.emit(int(progress))
+            if (progress+progress_start - temp) >= 2:
+                self.sig_flash_progress.emit(int(progress+progress_start))
                 temp = progress
 
         self.conn.set_config(key='p2_timeout', value=1.5)
@@ -1134,55 +1134,61 @@ class canFlashThread(QThread):
         self.request_and_response(req)
         time.sleep(0.5)
 
+    def send_flash_progress(self,progress):
+        if self.is_stop:
+            return
+        self.sig_flash_progress.emit(progress)
+
     def run(self):
         self.load_dll(self.dll_path)
 
-        self.sig_flash_progress.emit(0)
+        self.send_flash_progress(0)
         self.request_extended()
 
         self.Check_Programming_condition()
-        self.sig_flash_progress.emit(0)
-        self.Disable_Rx_and_Tx()
 
+        self.Disable_Rx_and_Tx()
+        self.send_flash_progress(1)
         self.Disable_DTC_function()
 
         self.request_programming()
-        self.sig_flash_progress.emit(2)
+
         self.request_unlock(0x9)
-        self.sig_flash_progress.emit(3)
+        self.send_flash_progress(3)
         self.Write_fingerprint_information()
-        self.sig_flash_progress.emit(5)
+        self.send_flash_progress(4)
 
         self.load_hex(self.flash_drive_path)
         self.request_download(self.flash_drive_path)
 
         self.TransferData_drive()
-        self.sig_flash_progress.emit(6)
+        self.send_flash_progress(6)
         self.request_TransferExit()
-        self.sig_flash_progress.emit(7)
+        self.send_flash_progress(7)
         self.Integrity_check()
 
         self.load_hex(self.flash_app_path)
         self.Erasememory()
-        self.sig_flash_progress.emit(8)
+        self.send_flash_progress(8)
         self.request_download(self.flash_app_path)
 
         # 固定传输app时进度为10
-        self.sig_flash_progress.emit(10)
+        self.send_flash_progress(10)
 
         self.TransferData_app()
 
         self.request_TransferExit()
+        # 固定传输app完成进度为90
+        self.send_flash_progress(90)
 
         self.Integrity_check()
         self.Programmatic_dependency_checking()
-        # 固定传输app完成进度为90
-        self.sig_flash_progress.emit(90)
+        self.send_flash_progress(95)
         if self.is_stop:
             self.sig_flash_info.emit(f"刷写失败\n")
             return
-        self.stop()
         self.sig_flash_info.emit(f"刷写成功\n")
+        self.send_flash_progress(100)
 
     def chunk_data(self, data, NumberOfBlockLength):
         """将数据分割成指定大小的块。
@@ -1203,6 +1209,8 @@ class canFlashThread(QThread):
         return data_chunks
 
     def load_hex(self, path):
+        if self.is_stop:
+            return
         ih = IntelHex()
         ih.loadhex(path)
 
@@ -1383,10 +1391,9 @@ class canFlashThread(QThread):
         except TimeoutException as e:
             if self.send_state != 'Normal':
                 self.send_state = 'Normal'
-                pass
             else:
                 self.sig_flash_info.emit(str(e) + '\r')
-                self.stop()
+            self.stop()
         except Exception as e:
             self.sig_flash_info.emit(str(e) + '\r')
             self.stop()
