@@ -532,6 +532,29 @@
        </property>
       </widget>
      </widget>
+     <widget class="QComboBox" name="comboBox_flashconfig">
+      <property name="geometry">
+       <rect>
+        <x>180</x>
+        <y>0</y>
+        <width>151</width>
+        <height>22</height>
+       </rect>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_flashconfig">
+      <property name="geometry">
+       <rect>
+        <x>100</x>
+        <y>0</y>
+        <width>81</width>
+        <height>29</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>FlashConfig:</string>
+      </property>
+     </widget>
     </widget>
     <widget class="QWidget" name="DoIPUDS">
      <attribute name="title">

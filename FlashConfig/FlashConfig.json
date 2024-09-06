@@ -1,0 +1,157 @@
+{
+  "CANFlash": [
+    {
+      "name": "request_extended",
+      "enable": true
+    },
+    {
+      "name": "Check_Programming_condition",
+      "enable": false
+    },
+    {
+      "name": "Disable_Rx_and_Tx",
+      "enable": false
+    },
+    {
+      "name": "Disable_DTC_function",
+      "enable": false
+    },
+    {
+      "name": "Enable_DTC_function",
+      "enable": false
+    },
+    {
+      "name": "Enable_Rx_and_Tx",
+      "enable": false
+    },
+    {
+      "name": "request_programming",
+      "enable": true
+    },
+    {
+      "name": "request_unlock",
+      "enable": true,
+      "level": "0x11"
+    },
+    {
+      "name": "Write_fingerprint_information",
+      "enable": false
+    },
+    {
+      "name": "request_download_drive",
+      "enable": true
+    },
+    {
+      "name": "TransferData_drive",
+      "enable": true
+    },
+    {
+      "name": "request_TransferExit",
+      "enable": true
+    },
+    {
+      "name": "Integrity_check",
+      "enable": true
+    },
+    {
+      "name": "Erasememory",
+      "enable": true
+    },
+    {
+      "name": "request_download_app",
+      "enable": true
+    },
+    {
+      "name": "TransferData_app",
+      "enable": true
+    },
+    {
+      "name": "request_TransferExit",
+      "enable": true
+    },
+    {
+      "name": "Integrity_check",
+      "enable": true
+    },
+    {
+      "name": "Programmatic_dependency_checking",
+      "enable": true
+    }
+  ],
+
+  "CANFlash_functioon_list": [
+    {
+      "name": "request_Default_Session",
+      "enable": true
+    },
+    {
+      "name": "request_extended",
+      "enable": true
+    },
+    {
+      "name": "Check_Programming_condition",
+      "enable": false
+    },
+    {
+      "name": "Disable_DTC_function",
+      "enable": false
+    },
+    {
+      "name": "Enable_DTC_function",
+      "enable": false
+    },
+    {
+      "name": "Disable_Rx_and_Tx",
+      "enable": false
+    },
+    {
+      "name": "Enable_Rx_and_Tx",
+      "enable": false
+    },
+    {
+      "name": "request_programming",
+      "enable": false
+    },
+    {
+      "name": "Write_fingerprint_information",
+      "enable": false
+    },
+    {
+      "name": "request_unlock",
+      "enable": false,
+      "level": "0x11"
+    },
+    {
+      "name": "request_download_drive",
+      "enable": false
+    },
+    {
+      "name": "request_download_app",
+      "enable": false
+    },
+    {
+      "name": "TransferData_drive",
+      "enable": false
+    },
+    {
+      "name": "TransferData_app",
+      "enable": false
+    },
+    {
+      "name": "request_TransferExit",
+      "enable": false
+    },
+    {
+      "name": "Integrity_check",
+      "enable": false
+    },
+    {
+      "name": "Erasememory",
+      "enable": false
+    },
+    {
+      "name": "Programmatic_dependency_checking",
+      "enable": false
+    }
+  ]
+}

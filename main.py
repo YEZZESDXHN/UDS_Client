@@ -1,3 +1,4 @@
+import json
 import queue
 import sys
 import ctypes
@@ -24,6 +25,7 @@ from udsoncan.client import Client
 import udsoncan.configs
 import configparser
 
+sw_information="Version:V1.4\nAuthor:Zhichen Wang\nDate:2024.9.6"
 
 class MainWindows(QMainWindow, Ui_MainWindow):
     sig_dll_path = pyqtSignal(object)
@@ -317,6 +319,8 @@ write f189:2ef18900112233445577
 
     def start_flash(self):
 
+
+
         if self.flash_drive_path is None:
             self.print_flash_info('请选择drive文件')
             return
@@ -353,7 +357,7 @@ write f189:2ef18900112233445577
             self.groupBox_drive.setDisabled(False)
 
     def popup_about(self):
-        QMessageBox.information(None, "About", "Version:V1.3\nAuthor:Zhichen Wang\nDate:2024.7.24")
+        QMessageBox.information(None, "About", sw_information)
 
     def refresh_ui(self):
         self.refresh_drive()
@@ -937,6 +941,28 @@ class canFlashThread(QThread):
 
         self.is_stop = False
 
+        self.step_functions = {
+            "request_Default_Session": self.request_Default_Session,
+            "request_extended": self.request_extended,
+            "Check_Programming_condition": self.Check_Programming_condition,
+            "Disable_DTC_function": self.Disable_DTC_function,
+            "Enable_DTC_function": self.Enable_DTC_function,
+            "Disable_Rx_and_Tx": self.Disable_Rx_and_Tx,
+            "Enable_Rx_and_Tx": self.Enable_Rx_and_Tx,
+            "request_programming": self.request_programming,
+            "Write_fingerprint_information": self.Write_fingerprint_information,
+            "request_unlock": self.request_unlock,
+            "request_download_app": self.request_download_app,
+            "request_download_drive": self.request_download_drive,
+            "TransferData_drive": self.TransferData_drive,
+            "TransferData_app": self.TransferData_app,
+            "request_TransferExit": self.request_TransferExit,
+            "Integrity_check": self.Integrity_check,
+            "Erasememory": self.Erasememory,
+            "Programmatic_dependency_checking": self.Programmatic_dependency_checking,
+        }
+
+
     def stop(self):
         self.is_stop = True
         self.sig_flash_is_stop.emit(True)
@@ -1017,25 +1043,48 @@ class canFlashThread(QThread):
         self.request_and_response(req)
         time.sleep(0.5)
 
-    def Write_fingerprint_information(self):
+    def Write_fingerprint_information(self,data=b'\xf1\x84\x18\x07\x1d\xff\xff\xff\xff\xff\xff'):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"写入指纹信息\n")
-        req = Request(services.WriteDataByIdentifier, data=b'\xf1\x84\x18\x07\x1d\xff\xff\xff\xff\xff\xff')
+        # req = Request(services.WriteDataByIdentifier, data=b'\xf1\x84\x18\x07\x1d\xff\xff\xff\xff\xff\xff')
+        req = Request(services.WriteDataByIdentifier, data=data)
         self.request_and_response(req)
         time.sleep(0.5)
 
     def request_unlock(self, level):
         if self.is_stop:
             return
-        self.sig_flash_info.emit(f"开始level {level}解锁\n")
+        self.sig_flash_info.emit(f"开始level {level:x}解锁\n")
         req = Request(services.SecurityAccess, subfunction=level)
         self.request_and_response(req)
         time.sleep(0.5)
 
-    def request_download(self,path):
+    def request_download_app(self,path=None):
         if self.is_stop:
             return
+        if path is None:
+            path = self.flash_app_path
+
+        # self.load_hex(path)
+        # 下载参数
+        # self.load_hex(self.hex_path)
+        memory_address = self.flash_hex_data[0]["start_address"]
+        memory_size = self.flash_hex_data[0]["size"]
+        self.sig_flash_info.emit(
+            f"请求下载:{path}\nmemory_address:{hex(memory_address)}\nmemory_size:{hex(memory_size)}\n")
+        memory_location = MemoryLocation(address=memory_address, memorysize=memory_size, address_format=32,
+                                         memorysize_format=32)
+        req = RequestDownload.make_request(memory_location=memory_location, dfi=self.dataFormatIdentifier)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
+    def request_download_drive(self,path=None):
+        if self.is_stop:
+            return
+        if path is None:
+            path = self.flash_drive_path
+        self.load_hex(path)
         # 下载参数
         # self.load_hex(self.hex_path)
         memory_address = self.flash_hex_data[0]["start_address"]
@@ -1051,38 +1100,56 @@ class canFlashThread(QThread):
     def TransferData_drive(self):
         if self.is_stop:
             return
-        self.sig_flash_info.emit(f"开始数据传输\n...\n")
-        self.flash_temp_list = self.chunk_data(self.flash_hex_data[0]['data'], self.maxNumberOfBlockLength - 2)
-        self.blockSequenceCounter = 0
-        self.conn.set_config(key='p2_timeout', value=5)
-        for block in self.flash_temp_list:
-            self.blockSequenceCounter = (self.blockSequenceCounter + 1) & 0xff
-            req = TransferData.make_request(self.blockSequenceCounter, block)
-            self.request_and_response(req)
-        self.conn.set_config(key='p2_timeout', value=1.5)
-        self.blockSequenceCounter = 0
-        self.sig_flash_info.emit(f"数据传输完成\n")
-        time.sleep(0.5)
 
-    def TransferData_app(self):
-        if self.is_stop:
-            return
+        self.sig_flash_progress.emit(0)
         self.sig_flash_info.emit(f"开始数据传输\n...\n")
         self.flash_temp_list = self.chunk_data(self.flash_hex_data[0]['data'], self.maxNumberOfBlockLength - 2)
         self.blockSequenceCounter = 0
         self.conn.set_config(key='p2_timeout', value=5)
         block_num = len(self.flash_temp_list)
 
-        temp = 10
+
+        temp = 0
         count = 0
-        progress_start = 10
+        progress_start = 0
 
         for block in self.flash_temp_list:
             self.blockSequenceCounter = (self.blockSequenceCounter + 1) & 0xff
             req = TransferData.make_request(self.blockSequenceCounter, block)
             self.request_and_response(req)
             count = count + 1
-            progress = (count / block_num) * 80
+            progress = (count / block_num) * 100
+
+            if (progress+progress_start - temp) >= 2:
+                self.sig_flash_progress.emit(int(progress+progress_start))
+                temp = progress
+
+        self.conn.set_config(key='p2_timeout', value=1.5)
+        self.blockSequenceCounter = 0
+        self.sig_flash_info.emit(f"数据传输完成\n")
+        # self.sig_flash_progress.emit(0)
+        time.sleep(0.5)
+
+    def TransferData_app(self):
+        if self.is_stop:
+            return
+        self.sig_flash_progress.emit(0)
+        self.sig_flash_info.emit(f"开始数据传输\n...\n")
+        self.flash_temp_list = self.chunk_data(self.flash_hex_data[0]['data'], self.maxNumberOfBlockLength - 2)
+        self.blockSequenceCounter = 0
+        self.conn.set_config(key='p2_timeout', value=5)
+        block_num = len(self.flash_temp_list)
+
+        temp = 0
+        count = 0
+        progress_start = 0
+
+        for block in self.flash_temp_list:
+            self.blockSequenceCounter = (self.blockSequenceCounter + 1) & 0xff
+            req = TransferData.make_request(self.blockSequenceCounter, block)
+            self.request_and_response(req)
+            count = count + 1
+            progress = (count / block_num) * 100
 
             if (progress+progress_start - temp) >= 2:
                 self.sig_flash_progress.emit(int(progress+progress_start))
@@ -1114,9 +1181,14 @@ class canFlashThread(QThread):
         self.request_and_response(req)
         time.sleep(0.5)
 
-    def Erasememory(self):
+    def Erasememory(self,path=None):
         if self.is_stop:
             return
+        if path is None:
+            path = self.flash_app_path
+
+        self.load_hex(path)
+
         self.sig_flash_info.emit(f"擦除app内存\n")
         start_address_bytes = (self.flash_hex_data[0]["start_address"]).to_bytes(4, byteorder='big')
         size_bytes = (self.flash_hex_data[0]["size"]).to_bytes(4, byteorder='big')
@@ -1143,53 +1215,91 @@ class canFlashThread(QThread):
         self.load_dll(self.dll_path)
 
         self.send_flash_progress(0)
-        self.request_extended()
 
-        self.Check_Programming_condition()
+        with open("FlashConfig/FlashConfig.json", "r") as f:
+            config = json.load(f)
+            # 根据配置信息执行刷写步骤
+            for step in config["CANFlash"]:
+                function_name = step["name"]
+                if function_name in self.step_functions:
+                    if step["enable"] == True:
+                        function = self.step_functions[function_name]
 
-        self.Disable_Rx_and_Tx()
-        self.send_flash_progress(1)
-        self.Disable_DTC_function()
+                        required_args = {k: v for k, v in step.items() if k in function.__code__.co_varnames}
 
-        self.request_programming()
+                        # 解析所有可能的十六进制参数
+                        for key, value in required_args.items():
+                            try:
+                                # 尝试将参数转换为整数
+                                required_args[key] = int(value, 16)
+                            except ValueError:
+                                # 如果转换失败，则保持原样
+                                try:
+                                    required_args[key] = int(value)
+                                except ValueError:
+                                    pass
 
-        self.request_unlock(0x9)
-        self.send_flash_progress(3)
-        self.Write_fingerprint_information()
-        self.send_flash_progress(4)
+                        # 传递参数
+                        function(**required_args)
+                else:
+                    print(f"未找到步骤 {function_name} 的函数")
+            if self.is_stop:
+                self.sig_flash_info.emit(f"刷写失败\n")
+                return
+            self.sig_flash_info.emit(f"刷写成功\n")
+            self.send_flash_progress(100)
+            self.stop()
 
-        self.load_hex(self.flash_drive_path)
-        self.request_download(self.flash_drive_path)
 
-        self.TransferData_drive()
-        self.send_flash_progress(6)
-        self.request_TransferExit()
-        self.send_flash_progress(7)
-        self.Integrity_check()
 
-        self.load_hex(self.flash_app_path)
-        self.Erasememory()
-        self.send_flash_progress(8)
-        self.request_download(self.flash_app_path)
 
-        # 固定传输app时进度为10
-        self.send_flash_progress(10)
-
-        self.TransferData_app()
-
-        self.request_TransferExit()
-        # 固定传输app完成进度为90
-        self.send_flash_progress(90)
-
-        self.Integrity_check()
-        self.Programmatic_dependency_checking()
-        self.send_flash_progress(95)
-        if self.is_stop:
-            self.sig_flash_info.emit(f"刷写失败\n")
-            return
-        self.sig_flash_info.emit(f"刷写成功\n")
-        self.send_flash_progress(100)
-        self.stop()
+        # self.request_extended()
+        #
+        # self.Check_Programming_condition()
+        #
+        # self.Disable_Rx_and_Tx()
+        # self.send_flash_progress(1)
+        # self.Disable_DTC_function()
+        #
+        # self.request_programming()
+        #
+        # self.request_unlock(0x9)
+        # self.send_flash_progress(3)
+        # self.Write_fingerprint_information()
+        # self.send_flash_progress(4)
+        #
+        # self.load_hex(self.flash_drive_path)
+        # self.request_download_drive(self.flash_drive_path)
+        #
+        # self.TransferData_drive()
+        # self.send_flash_progress(6)
+        # self.request_TransferExit()
+        # self.send_flash_progress(7)
+        # self.Integrity_check()
+        #
+        # self.load_hex(self.flash_app_path)
+        # self.Erasememory()
+        # self.send_flash_progress(8)
+        # self.request_download_app(self.flash_app_path)
+        #
+        # # 固定传输app时进度为10
+        # self.send_flash_progress(10)
+        #
+        # self.TransferData_app()
+        #
+        # self.request_TransferExit()
+        # # 固定传输app完成进度为90
+        # self.send_flash_progress(90)
+        #
+        # self.Integrity_check()
+        # self.Programmatic_dependency_checking()
+        # self.send_flash_progress(95)
+        # if self.is_stop:
+        #     self.sig_flash_info.emit(f"刷写失败\n")
+        #     return
+        # self.sig_flash_info.emit(f"刷写成功\n")
+        # self.send_flash_progress(100)
+        # self.stop()
 
     def chunk_data(self, data, NumberOfBlockLength):
         """将数据分割成指定大小的块。
