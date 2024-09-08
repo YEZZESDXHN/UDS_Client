@@ -335,10 +335,10 @@ write f189:2ef18900112233445577
             self.print_flash_info(f'{self.flash_drive_path} 不存在')
             return
 
-        self.flash_thread = canFlashThread(conn=self.uds_client, dll_path=self.dll_path,
+        self.flash_thread = canFlashThread(conn=self.uds_client, isotp_conn=self.conn,dll_path=self.dll_path,
                                            flash_drive_path=self.flash_drive_path,
                                            flash_app_path=self.flash_app_path)
-
+        self.flash_thread.sig_flag_3e.connect(self.canTesterPresentThread.set_3e_flag)
         self.pushButton_flash.setDisabled(True)
         self.groupBox_app.setDisabled(True)
         self.groupBox_drive.setDisabled(True)
@@ -598,6 +598,7 @@ write f189:2ef18900112233445577
 
         self.uds_client = Client(self.conn, config=config)
         self.uds_client.open()
+
         # try:
         #     response = self.uds_client.test_data_identifier([0xF195])
         #
@@ -919,10 +920,11 @@ class canFlashThread(QThread):
     sig_flash_is_stop = pyqtSignal(bool)
     sig_flash_info = pyqtSignal(object)
     sig_flash_progress = pyqtSignal(object)
-
-    def __init__(self, conn, dll_path, flash_drive_path, flash_app_path):
+    sig_flag_3e = pyqtSignal(object)
+    def __init__(self, conn, isotp_conn,dll_path, flash_drive_path, flash_app_path):
         super().__init__()
         self.conn = conn
+        self.isotp_conn=isotp_conn
         self.daemon = True  # 设置为守护进程
         self.send_state = 'Normal'
         self.dll_path = dll_path
@@ -1041,7 +1043,11 @@ class canFlashThread(QThread):
         self.sig_flash_info.emit(f"请求编程会话\n")
         req = Request(services.DiagnosticSessionControl, subfunction=2)
         self.request_and_response(req)
-        time.sleep(0.5)
+        self.is_stop=False
+        time.sleep(4)
+        self.request_and_response(req)
+
+        time.sleep(1)
 
     def Write_fingerprint_information(self,data=b'\xf1\x84\x18\x07\x1d\xff\xff\xff\xff\xff\xff'):
         if self.is_stop:
@@ -1347,6 +1353,12 @@ class canFlashThread(QThread):
             response = self.conn.send_request(req)
 
             data_raw = response.original_payload
+
+            if data_raw[0] == 0x50 and data_raw[1] > 1:
+                self.sig_flag_3e.emit(True)
+            elif data_raw[0] == 0x50 and data_raw[1] == 1:
+                self.sig_flag_3e.emit(False)
+
 
             if data_raw[0] == 0x50:
                 if data_raw[1] == 0x03:
