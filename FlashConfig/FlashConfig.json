@@ -26,6 +26,10 @@
     },
     {
       "name": "request_programming",
+      "enable": false
+    },
+    {
+      "name": "request_programming_double",
       "enable": true
     },
     {
@@ -35,7 +39,7 @@
     },
     {
       "name": "Write_fingerprint_information",
-      "enable": false
+      "enable": true
     },
     {
       "name": "request_download_drive",

@@ -952,6 +952,7 @@ class canFlashThread(QThread):
             "Disable_Rx_and_Tx": self.Disable_Rx_and_Tx,
             "Enable_Rx_and_Tx": self.Enable_Rx_and_Tx,
             "request_programming": self.request_programming,
+            "request_programming_double":self.request_programming_double,
             "Write_fingerprint_information": self.Write_fingerprint_information,
             "request_unlock": self.request_unlock,
             "request_download_app": self.request_download_app,
@@ -1038,6 +1039,15 @@ class canFlashThread(QThread):
         time.sleep(0.5)
 
     def request_programming(self):
+        if self.is_stop:
+            return
+        self.sig_flash_info.emit(f"请求编程会话\n")
+        req = Request(services.DiagnosticSessionControl, subfunction=2)
+        self.request_and_response(req)
+
+        time.sleep(1)
+
+    def request_programming_double(self):
         if self.is_stop:
             return
         self.sig_flash_info.emit(f"请求编程会话\n")
