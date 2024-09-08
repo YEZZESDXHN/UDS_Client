@@ -10,7 +10,7 @@
     <x>0</x>
     <y>0</y>
     <width>725</width>
-    <height>517</height>
+    <height>513</height>
    </rect>
   </property>
   <property name="palette">
@@ -102,7 +102,7 @@
       <x>0</x>
       <y>150</y>
       <width>721</width>
-      <height>321</height>
+      <height>323</height>
      </rect>
     </property>
     <property name="autoFillBackground">
@@ -281,14 +281,14 @@
       </property>
       <property name="geometry">
        <rect>
-        <x>410</x>
-        <y>10</y>
-        <width>75</width>
+        <x>10</x>
+        <y>130</y>
+        <width>51</width>
         <height>23</height>
        </rect>
       </property>
       <property name="text">
-       <string>Start_Flash</string>
+       <string>Flash</string>
       </property>
      </widget>
      <widget class="QProgressBar" name="progressBar">
@@ -297,9 +297,9 @@
       </property>
       <property name="geometry">
        <rect>
-        <x>410</x>
-        <y>250</y>
-        <width>191</width>
+        <x>10</x>
+        <y>270</y>
+        <width>691</width>
         <height>23</height>
        </rect>
       </property>
@@ -310,19 +310,19 @@
      <widget class="QTextBrowser" name="textBrowser_flashinfo">
       <property name="geometry">
        <rect>
-        <x>410</x>
-        <y>40</y>
-        <width>301</width>
-        <height>192</height>
+        <x>70</x>
+        <y>130</y>
+        <width>631</width>
+        <height>131</height>
        </rect>
       </property>
      </widget>
      <widget class="QPushButton" name="pushButton_clearflashinfo">
       <property name="geometry">
        <rect>
-        <x>500</x>
-        <y>10</y>
-        <width>41</width>
+        <x>10</x>
+        <y>170</y>
+        <width>51</width>
         <height>23</height>
        </rect>
       </property>
@@ -333,9 +333,9 @@
      <widget class="QGroupBox" name="groupBox_app">
       <property name="geometry">
        <rect>
-        <x>10</x>
-        <y>120</y>
-        <width>391</width>
+        <x>360</x>
+        <y>30</y>
+        <width>340</width>
         <height>91</height>
        </rect>
       </property>
@@ -345,7 +345,7 @@
       <widget class="QToolButton" name="toolButton_loadapp">
        <property name="geometry">
         <rect>
-         <x>360</x>
+         <x>310</x>
          <y>20</y>
          <width>21</width>
          <height>18</height>
@@ -366,7 +366,7 @@
         <rect>
          <x>0</x>
          <y>20</y>
-         <width>351</width>
+         <width>300</width>
          <height>20</height>
         </rect>
        </property>
@@ -436,7 +436,7 @@
        <rect>
         <x>10</x>
         <y>30</y>
-        <width>391</width>
+        <width>340</width>
         <height>91</height>
        </rect>
       </property>
@@ -446,7 +446,7 @@
       <widget class="QToolButton" name="toolButton_loaddrive">
        <property name="geometry">
         <rect>
-         <x>360</x>
+         <x>310</x>
          <y>20</y>
          <width>21</width>
          <height>18</height>
@@ -467,7 +467,7 @@
         <rect>
          <x>0</x>
          <y>20</y>
-         <width>351</width>
+         <width>300</width>
          <height>20</height>
         </rect>
        </property>
@@ -478,7 +478,7 @@
       <widget class="QLabel" name="label_2">
        <property name="geometry">
         <rect>
-         <x>140</x>
+         <x>70</x>
          <y>50</y>
          <width>121</width>
          <height>31</height>
