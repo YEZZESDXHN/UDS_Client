@@ -32,6 +32,7 @@ class MainWindows(QMainWindow, Ui_MainWindow):
 
     def __init__(self):
         super().__init__()
+        self.flash_cfg = None
         self.setupUi(self)
         self.vectorConfigs = []
         self.dll_path = None
@@ -224,6 +225,8 @@ write f189:2ef18900112233445577
 
             self.set_ecu_diag_id()
 
+            self.update_flash_cfg_list()
+
 
 
 
@@ -241,6 +244,8 @@ write f189:2ef18900112233445577
         regVal.setRegExp(reg)
         self.lineEdit_send.setValidator(regVal)
 
+
+
         self.pushButton_start.clicked.connect(self.run_bus)
         self.comboBox_channel.activated.connect(self.update_channel_cfg_ui)
         self.pushButton_send.clicked.connect(self.send_uds)
@@ -251,6 +256,7 @@ write f189:2ef18900112233445577
         # 屏蔽双击编辑
         self.listView_dids.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.comboBox_eculist.activated.connect(self.set_ecu_diag_id)
+
         self.action_about.triggered.connect(self.popup_about)
         self.comboBox_eculist.activated.connect(self.send_ecu_name)
         # self.checkBox_3E.clicked.connect(self.send_checkBox_3e_signal)
@@ -337,7 +343,9 @@ write f189:2ef18900112233445577
 
         self.flash_thread = canFlashThread(conn=self.uds_client, isotp_conn=self.conn,dll_path=self.dll_path,
                                            flash_drive_path=self.flash_drive_path,
-                                           flash_app_path=self.flash_app_path)
+                                           flash_app_path=self.flash_app_path,
+                                           flash_cfg=self.flash_cfg,
+                                           flash_cfg_name=self.comboBox_flashconfig.currentText())
         self.flash_thread.sig_flag_3e.connect(self.canTesterPresentThread.set_3e_flag)
         self.pushButton_flash.setDisabled(True)
         self.groupBox_app.setDisabled(True)
@@ -346,6 +354,20 @@ write f189:2ef18900112233445577
         self.flash_thread.sig_flash_is_stop.connect(self.update_flash_pushButton)
         self.flash_thread.sig_flash_progress.connect(self.flash_progress_ui)
         self.flash_thread.start()
+
+    def update_flash_cfg_list(self):
+        try:
+            with open("FlashConfig/FlashConfig.json", "r") as f:
+                self.flash_cfg = json.load(f)
+                self.comboBox_flashconfig.clear()
+                self.comboBox_flashconfig.addItems(self.flash_cfg)
+        except Exception as e:
+            pass
+
+
+
+
+
 
     def flash_progress_ui(self, progress):
         self.progressBar.setValue(progress)
@@ -921,7 +943,7 @@ class canFlashThread(QThread):
     sig_flash_info = pyqtSignal(object)
     sig_flash_progress = pyqtSignal(object)
     sig_flag_3e = pyqtSignal(object)
-    def __init__(self, conn, isotp_conn,dll_path, flash_drive_path, flash_app_path):
+    def __init__(self, conn, isotp_conn,dll_path, flash_drive_path, flash_app_path,flash_cfg,flash_cfg_name):
         super().__init__()
         self.conn = conn
         self.isotp_conn=isotp_conn
@@ -931,6 +953,8 @@ class canFlashThread(QThread):
         self.dll_lib = None
         self.flash_hex_data = []
         self.flash_temp_list = []
+        self.flash_cfg=flash_cfg
+        self.flash_cfg_name=flash_cfg_name
 
         self.flash_drive_path = flash_drive_path
         self.flash_app_path = flash_app_path
@@ -946,6 +970,7 @@ class canFlashThread(QThread):
         self.step_functions = {
             "request_Default_Session": self.request_Default_Session,
             "request_extended": self.request_extended,
+            "ECU_Reset":self.ECU_Reset,
             "Check_Programming_condition": self.Check_Programming_condition,
             "Disable_DTC_function": self.Disable_DTC_function,
             "Enable_DTC_function": self.Enable_DTC_function,
@@ -965,13 +990,13 @@ class canFlashThread(QThread):
             "Programmatic_dependency_checking": self.Programmatic_dependency_checking,
         }
 
-
     def stop(self):
         self.is_stop = True
         self.sig_flash_is_stop.emit(True)
 
     def request_Default_Session(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"请求默认会话\n")
         req = Request(services.DiagnosticSessionControl, subfunction=1)
@@ -980,6 +1005,7 @@ class canFlashThread(QThread):
 
     def request_extended(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"请求拓展会话\n")
         req = Request(services.DiagnosticSessionControl, subfunction=3)
@@ -988,14 +1014,26 @@ class canFlashThread(QThread):
 
     def Check_Programming_condition(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"编程前条件预检查\n")
         req = Request(services.RoutineControl, subfunction=1, data=b'\x02\x03')
         self.request_and_response(req)
         time.sleep(0.5)
 
+    def ECU_Reset(self):
+        if self.is_stop:
+            self.sig_flag_3e.emit(False)
+            return
+        time.sleep(2)
+        self.sig_flash_info.emit(f"ECU reset\n")
+        req = Request(services.ECUReset, subfunction=1)
+        self.request_and_response(req)
+        time.sleep(0.5)
+
     def Disable_DTC_function(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"禁用 DTC功能\n")
         req = Request(services.ControlDTCSetting, subfunction=2, suppress_positive_response=True)
@@ -1007,6 +1045,7 @@ class canFlashThread(QThread):
 
     def Enable_DTC_function(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"使能 DTC功能\n")
         req = Request(services.ControlDTCSetting, subfunction=1, suppress_positive_response=True)
@@ -1018,6 +1057,7 @@ class canFlashThread(QThread):
 
     def Disable_Rx_and_Tx(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"停止通讯报文\n")
         req = Request(services.CommunicationControl, subfunction=3, suppress_positive_response=True, data=b'\x03')
@@ -1029,6 +1069,7 @@ class canFlashThread(QThread):
 
     def Enable_Rx_and_Tx(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"使能通讯报文\n")
         req = Request(services.CommunicationControl, subfunction=0, suppress_positive_response=True, data=b'\x03')
@@ -1040,6 +1081,7 @@ class canFlashThread(QThread):
 
     def request_programming(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"请求编程会话\n")
         req = Request(services.DiagnosticSessionControl, subfunction=2)
@@ -1049,6 +1091,7 @@ class canFlashThread(QThread):
 
     def request_programming_double(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"请求编程会话\n")
         req = Request(services.DiagnosticSessionControl, subfunction=2)
@@ -1061,6 +1104,7 @@ class canFlashThread(QThread):
 
     def Write_fingerprint_information(self,data=b'\xf1\x84\x18\x07\x1d\xff\xff\xff\xff\xff\xff'):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"写入指纹信息\n")
         # req = Request(services.WriteDataByIdentifier, data=b'\xf1\x84\x18\x07\x1d\xff\xff\xff\xff\xff\xff')
@@ -1070,6 +1114,7 @@ class canFlashThread(QThread):
 
     def request_unlock(self, level):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"开始level {level:x}解锁\n")
         req = Request(services.SecurityAccess, subfunction=level)
@@ -1078,6 +1123,7 @@ class canFlashThread(QThread):
 
     def request_download_app(self,path=None):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         if path is None:
             path = self.flash_app_path
@@ -1097,6 +1143,7 @@ class canFlashThread(QThread):
 
     def request_download_drive(self,path=None):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         if path is None:
             path = self.flash_drive_path
@@ -1115,6 +1162,7 @@ class canFlashThread(QThread):
 
     def TransferData_drive(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
 
         self.sig_flash_progress.emit(0)
@@ -1148,6 +1196,7 @@ class canFlashThread(QThread):
 
     def TransferData_app(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_progress.emit(0)
         self.sig_flash_info.emit(f"开始数据传输\n...\n")
@@ -1178,6 +1227,7 @@ class canFlashThread(QThread):
 
     def request_TransferExit(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"请求退出传输\n")
         req = Request(services.RequestTransferExit)
@@ -1186,6 +1236,7 @@ class canFlashThread(QThread):
 
     def Integrity_check(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"完整性检查\n")
         # 将整数 16909060 转换为字节串，使用大端序
@@ -1199,6 +1250,7 @@ class canFlashThread(QThread):
 
     def Erasememory(self,path=None):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         if path is None:
             path = self.flash_app_path
@@ -1216,6 +1268,7 @@ class canFlashThread(QThread):
 
     def Programmatic_dependency_checking(self):
         if self.is_stop:
+            self.sig_flag_3e.emit(False)
             return
         self.sig_flash_info.emit(f"编程依赖性检查\n")
         req = Request(services.RoutineControl, subfunction=1, data=b'\xff\x01')
@@ -1223,48 +1276,49 @@ class canFlashThread(QThread):
         time.sleep(0.5)
 
     def send_flash_progress(self,progress):
-        if self.is_stop:
-            return
         self.sig_flash_progress.emit(progress)
+
+
 
     def run(self):
         self.load_dll(self.dll_path)
 
         self.send_flash_progress(0)
 
-        with open("FlashConfig/FlashConfig.json", "r") as f:
-            config = json.load(f)
+        # with open("FlashConfig/FlashConfig.json", "r") as f:
+        #     config = json.load(f)
             # 根据配置信息执行刷写步骤
-            for step in config["CANFlash"]:
-                function_name = step["name"]
-                if function_name in self.step_functions:
-                    if step["enable"] == True:
-                        function = self.step_functions[function_name]
+        for step in self.flash_cfg[self.flash_cfg_name]:
+            function_name = step["name"]
+            if function_name in self.step_functions:
+                if step["enable"] == True:
+                    function = self.step_functions[function_name]
 
-                        required_args = {k: v for k, v in step.items() if k in function.__code__.co_varnames}
+                    required_args = {k: v for k, v in step.items() if k in function.__code__.co_varnames}
 
-                        # 解析所有可能的十六进制参数
-                        for key, value in required_args.items():
+                    # 解析所有可能的十六进制参数
+                    for key, value in required_args.items():
+                        try:
+                            # 尝试将参数转换为整数
+                            required_args[key] = int(value, 16)
+                        except ValueError:
+                            # 如果转换失败，则保持原样
                             try:
-                                # 尝试将参数转换为整数
-                                required_args[key] = int(value, 16)
+                                required_args[key] = int(value)
                             except ValueError:
-                                # 如果转换失败，则保持原样
-                                try:
-                                    required_args[key] = int(value)
-                                except ValueError:
-                                    pass
+                                pass
 
-                        # 传递参数
-                        function(**required_args)
-                else:
-                    print(f"未找到步骤 {function_name} 的函数")
-            if self.is_stop:
-                self.sig_flash_info.emit(f"刷写失败\n")
-                return
-            self.sig_flash_info.emit(f"刷写成功\n")
-            self.send_flash_progress(100)
-            self.stop()
+                    # 传递参数
+                    function(**required_args)
+            else:
+                print(f"未找到步骤 {function_name} 的函数")
+        if self.is_stop:
+            self.sig_flash_info.emit(f"刷写失败\n")
+            return
+        self.sig_flash_info.emit(f"刷写成功\n")
+        self.send_flash_progress(100)
+        self.stop()
+        self.sig_flag_3e.emit(False)
 
 
 

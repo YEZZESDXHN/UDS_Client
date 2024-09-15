@@ -156,6 +156,10 @@
     {
       "name": "Programmatic_dependency_checking",
       "enable": false
+    },
+    {
+      "name": "ECU_Reset",
+      "enable": true
     }
   ]
 }
